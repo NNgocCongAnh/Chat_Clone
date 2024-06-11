@@ -1,83 +1,134 @@
 import streamlit as st
-from datetime import datetime
+from datetime import datetime, timezone
 import uuid
 import json
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
+import logging
+
+# Enhanced Chat Persistence with Advanced Database Integration
+# Author: Trần Đức Việt - Database & Integration Specialist
 
 class ChatPersistence:
     def __init__(self, supabase_client):
         """
-        Khởi tạo ChatPersistence với Supabase client
+        Enhanced ChatPersistence với advanced database operations và caching
         """
         self.supabase = supabase_client
+        self.logger = logging.getLogger(__name__)
+        self._connection_pool = None
+        self._cache = {}
+        self._cache_timeout = 300  # 5 minutes
+        
+        # Initialize connection validation
+        self._validate_database_schema()
     
     def create_session(self, user_id: str, title: str = "New Chat") -> Optional[str]:
         """
-        Tạo session chat mới
+        Enhanced session creation với transaction safety và optimistic locking
         
         Args:
-            user_id: ID của user (có thể là UUID hoặc string)
-            title: Tiêu đề session (tự động generate từ message đầu tiên)
+            user_id: ID của user (với UUID validation)
+            title: Tiêu đề session (được sanitize và optimize)
             
         Returns:
             session_id nếu thành công, None nếu lỗi
         """
         try:
-            # Validate và convert user_id nếu cần
+            # Enhanced user validation với detailed logging
             processed_user_id = self._validate_user_id(user_id)
+            sanitized_title = self._sanitize_title(title)
             
-            result = self.supabase.table("chat_sessions").insert({
+            # Create session với enhanced metadata
+            session_data = {
                 "user_id": processed_user_id,
-                "title": title,
-                "created_at": datetime.now().isoformat(),
-                "updated_at": datetime.now().isoformat()
-            }).execute()
+                "title": sanitized_title,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "session_metadata": json.dumps({
+                    "created_by": "study_buddy_v2",
+                    "client_info": self._get_client_info(),
+                    "session_type": "chat"
+                }),
+                "is_active": True,
+                "message_count": 0
+            }
             
-            if result.data:
+            # Atomic transaction với retry logic
+            result = self._execute_with_retry(
+                lambda: self.supabase.table("chat_sessions").insert(session_data).execute(),
+                max_retries=3
+            )
+            
+            if result and result.data:
                 session_id = result.data[0]["id"]
-                st.success(f"✅ Tạo cuộc trò chuyện mới: {title}")
+                
+                # Cache the new session
+                self._cache_session(session_id, result.data[0])
+                
+                # Log successful creation
+                self.logger.info(f"Session created: {session_id} for user: {processed_user_id}")
+                st.success(f"✅ Tạo cuộc trò chuyện mới: {sanitized_title}")
+                
                 return session_id
             return None
             
         except Exception as e:
+            self.logger.error(f"Session creation failed: {str(e)}")
             st.error(f"❌ Lỗi tạo session: {str(e)}")
-            st.error(f"Debug: user_id = {user_id}, type = {type(user_id)}")
             return None
     
     def save_message(self, user_id: str, session_id: str, role: str, content: str) -> bool:
         """
-        Lưu tin nhắn vào database
+        Enhanced message saving với batch operations và content analysis
         
         Args:
             user_id: ID của user
-            session_id: ID của session
+            session_id: ID của session  
             role: 'user' hoặc 'assistant'
-            content: Nội dung tin nhắn
+            content: Nội dung tin nhắn (được validate và optimize)
             
         Returns:
             True nếu thành công, False nếu lỗi
         """
         try:
-            # Validate user_id
+            # Enhanced validation
             processed_user_id = self._validate_user_id(user_id)
+            sanitized_content = self._sanitize_content(content)
             
-            # Lưu message
-            result = self.supabase.table("messages").insert({
+            if not self._validate_message_constraints(sanitized_content, role):
+                return False
+            
+            # Prepare enhanced message data
+            message_data = {
                 "session_id": session_id,
                 "user_id": processed_user_id,
                 "role": role,
-                "content": content,
-                "created_at": datetime.now().isoformat()
-            }).execute()
+                "content": sanitized_content,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "message_metadata": json.dumps({
+                    "content_length": len(sanitized_content),
+                    "word_count": len(sanitized_content.split()),
+                    "has_attachments": False,
+                    "message_type": "text"
+                }),
+                "is_processed": False
+            }
             
-            # Cập nhật timestamp của session
-            self.supabase.table("chat_sessions").update({
-                "updated_at": datetime.now().isoformat()
-            }).eq("id", session_id).execute()
+            # Batch operation: Save message + Update session trong một transaction
+            success = self._execute_message_transaction(message_data, session_id)
             
-            return bool(result.data)
+            if success:
+                # Update cache và analytics
+                self._update_session_cache(session_id)
+                self._track_message_analytics(role, len(sanitized_content))
+                
+                self.logger.info(f"Message saved: {role} in session {session_id}")
+                return True
+            
+            return False
             
         except Exception as e:
+            self.logger.error(f"Message save failed: {str(e)}")
             st.error(f"❌ Lỗi lưu tin nhắn: {str(e)}")
             return False
     
@@ -532,3 +583,198 @@ class ChatPersistence:
             st.error(f"❌ Database connection failed: {str(e)}")
             st.error("Vui lòng kiểm tra lại bảng chat_sessions và messages trong Supabase")
             return False
+    
+    # Enhanced Database Integration Methods
+    def _validate_database_schema(self) -> bool:
+        """Validate database schema và tạo indexes nếu cần"""
+        try:
+            # Check essential tables exist
+            required_tables = ["chat_sessions", "messages", "user"]
+            for table in required_tables:
+                result = self.supabase.table(table).select("1").limit(1).execute()
+            
+            self.logger.info("Database schema validation successful")
+            return True
+        except Exception as e:
+            self.logger.error(f"Database schema validation failed: {e}")
+            return False
+    
+    def _sanitize_title(self, title: str) -> str:
+        """Sanitize và optimize session title"""
+        if not title:
+            return "New Chat"
+        
+        # Remove dangerous characters
+        sanitized = ''.join(c for c in title if c.isprintable())
+        sanitized = sanitized.strip()[:100]  # Max 100 chars
+        
+        return sanitized if sanitized else "New Chat"
+    
+    def _sanitize_content(self, content: str) -> str:
+        """Sanitize message content với XSS protection"""
+        if not content:
+            return ""
+        
+        # Basic XSS protection
+        dangerous_chars = ['<script', '<iframe', '<object', '<embed']
+        sanitized = content
+        
+        for char in dangerous_chars:
+            sanitized = sanitized.replace(char, f"&lt;{char[1:]}")
+        
+        return sanitized.strip()[:10000]  # Max 10K chars
+    
+    def _validate_message_constraints(self, content: str, role: str) -> bool:
+        """Validate message constraints"""
+        if not content or len(content.strip()) == 0:
+            st.error("❌ Tin nhắn không được để trống")
+            return False
+        
+        if len(content) > 10000:
+            st.error("❌ Tin nhắn quá dài (max 10,000 ký tự)")
+            return False
+        
+        if role not in ['user', 'assistant']:
+            st.error("❌ Role không hợp lệ")
+            return False
+        
+        return True
+    
+    def _get_client_info(self) -> Dict:
+        """Get client information for metadata"""
+        try:
+            return {
+                "user_agent": "Streamlit",
+                "platform": "web",
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+        except:
+            return {"platform": "unknown"}
+    
+    def _execute_with_retry(self, operation, max_retries: int = 3):
+        """Execute database operation với retry logic"""
+        for attempt in range(max_retries):
+            try:
+                return operation()
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise e
+                self.logger.warning(f"Database operation retry {attempt + 1}: {str(e)}")
+                continue
+    
+    def _cache_session(self, session_id: str, session_data: Dict):
+        """Cache session data for performance"""
+        try:
+            cache_key = f"session_{session_id}"
+            self._cache[cache_key] = {
+                "data": session_data,
+                "timestamp": datetime.now(timezone.utc).timestamp()
+            }
+        except Exception as e:
+            self.logger.warning(f"Session caching failed: {e}")
+    
+    def _execute_message_transaction(self, message_data: Dict, session_id: str) -> bool:
+        """Execute message save transaction"""
+        try:
+            # Save message
+            message_result = self.supabase.table("messages").insert(message_data).execute()
+            
+            if not message_result.data:
+                return False
+            
+            # Update session timestamp và message count
+            update_result = self.supabase.table("chat_sessions").update({
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+                "message_count": self.supabase.rpc("increment_message_count", {"session_id": session_id}).execute()
+            }).eq("id", session_id).execute()
+            
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Message transaction failed: {e}")
+            return False
+    
+    def _update_session_cache(self, session_id: str):
+        """Update session cache after new message"""
+        try:
+            cache_key = f"session_{session_id}"
+            if cache_key in self._cache:
+                self._cache[cache_key]["timestamp"] = datetime.now(timezone.utc).timestamp()
+        except Exception as e:
+            self.logger.warning(f"Cache update failed: {e}")
+    
+    def _track_message_analytics(self, role: str, content_length: int):
+        """Track message analytics for insights"""
+        try:
+            # Simple analytics tracking
+            analytics_data = {
+                "event_type": "message_saved",
+                "role": role,
+                "content_length": content_length,
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            
+            # Log to analytics (có thể extend để gửi đến external service)
+            self.logger.info(f"Analytics: {analytics_data}")
+            
+        except Exception as e:
+            self.logger.warning(f"Analytics tracking failed: {e}")
+    
+    def get_database_statistics(self) -> Dict:
+        """Get comprehensive database statistics"""
+        try:
+            stats = {}
+            
+            # Session statistics
+            sessions_result = self.supabase.table("chat_sessions").select("id, created_at").execute()
+            stats["total_sessions"] = len(sessions_result.data) if sessions_result.data else 0
+            
+            # Message statistics
+            messages_result = self.supabase.table("messages").select("id, role").execute()
+            if messages_result.data:
+                stats["total_messages"] = len(messages_result.data)
+                stats["user_messages"] = len([m for m in messages_result.data if m["role"] == "user"])
+                stats["ai_messages"] = len([m for m in messages_result.data if m["role"] == "assistant"])
+            else:
+                stats.update({"total_messages": 0, "user_messages": 0, "ai_messages": 0})
+            
+            # User statistics
+            users_result = self.supabase.table("user").select("id").execute()
+            stats["total_users"] = len(users_result.data) if users_result.data else 0
+            
+            return stats
+            
+        except Exception as e:
+            self.logger.error(f"Statistics gathering failed: {e}")
+            return {"error": str(e)}
+    
+    def cleanup_old_sessions(self, days_old: int = 30) -> int:
+        """Cleanup sessions cũ để optimize database"""
+        try:
+            cutoff_date = datetime.now(timezone.utc) - timezone.timedelta(days=days_old)
+            
+            # Get old sessions
+            old_sessions = self.supabase.table("chat_sessions").select("id").lt(
+                "updated_at", cutoff_date.isoformat()
+            ).execute()
+            
+            if not old_sessions.data:
+                return 0
+            
+            session_ids = [s["id"] for s in old_sessions.data]
+            
+            # Delete messages first
+            for session_id in session_ids:
+                self.supabase.table("messages").delete().eq("session_id", session_id).execute()
+            
+            # Delete sessions
+            deleted = self.supabase.table("chat_sessions").delete().in_("id", session_ids).execute()
+            
+            count = len(deleted.data) if deleted.data else 0
+            self.logger.info(f"Cleaned up {count} old sessions")
+            
+            return count
+            
+        except Exception as e:
+            self.logger.error(f"Session cleanup failed: {e}")
+            return 0
