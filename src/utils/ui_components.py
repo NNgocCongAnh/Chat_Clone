@@ -1,23 +1,86 @@
 import streamlit as st
 from datetime import datetime
+import time
+
+# Enhanced UI Components for Study Buddy
+# Author: Nguyễn Ngọc Công Anh - Frontend & UI/UX Enhancement
 
 def render_message(message):
-    """Render một tin nhắn chat với style giống ChatGPT"""
+    """Enhanced message rendering với typing animation và status indicators"""
     role = message["role"]
     content = message["content"]
     timestamp = message.get("timestamp", datetime.now())
     
     if role == "user":
-        # Tin nhắn của user - căn phải
+        # Enhanced user message với gradient background
         with st.chat_message("user", avatar="👤"):
-            st.markdown(content)
-            st.caption(f"🕐 {timestamp.strftime('%H:%M')}")
+            # Message với enhanced formatting
+            st.markdown(f"""
+            <div class="user-message-content">
+                {content}
+                <div class="message-metadata">
+                    <span class="timestamp">🕐 {timestamp.strftime('%H:%M')}</span>
+                    <span class="status-indicator">✓</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
     
     elif role == "assistant":
-        # Tin nhắn của AI - căn trái
+        # Enhanced AI message với typing animation
         with st.chat_message("assistant", avatar="🤖"):
-            st.markdown(content)
-            st.caption(f"🕐 {timestamp.strftime('%H:%M')}")
+            # Simulate typing animation cho messages mới
+            if message.get("is_new", False):
+                render_typing_animation()
+                time.sleep(0.5)  # Brief pause for effect
+            
+            # AI message với enhanced formatting
+            st.markdown(f"""
+            <div class="assistant-message-content">
+                {content}
+                <div class="message-metadata">
+                    <span class="timestamp">🕐 {timestamp.strftime('%H:%M')}</span>
+                    <span class="ai-indicator">🤖 Study Buddy</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Message actions
+            render_message_actions(content)
+
+def render_typing_animation():
+    """Render typing indicator animation"""
+    typing_placeholder = st.empty()
+    
+    # Animated typing dots
+    for i in range(3):
+        dots = "." * (i + 1)
+        typing_placeholder.markdown(f"""
+        <div class="typing-indicator">
+            <span>🤖 Study Buddy đang soạn tin nhắn{dots}</span>
+        </div>
+        """, unsafe_allow_html=True)
+        time.sleep(0.3)
+    
+    typing_placeholder.empty()
+
+def render_message_actions(content):
+    """Render action buttons cho messages"""
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 7])
+    
+    with col1:
+        if st.button("👍", key=f"like_{hash(content)}", help="Thích tin nhắn này"):
+            st.session_state[f"liked_{hash(content)}"] = True
+            st.success("👍 Đã thích!")
+    
+    with col2:
+        if st.button("📋", key=f"copy_{hash(content)}", help="Copy tin nhắn"):
+            # JavaScript copy functionality would go here
+            st.info("📋 Đã copy!")
+    
+    with col3:
+        if st.button("🔄", key=f"regenerate_{hash(content)}", help="Tạo lại phản hồi"):
+            st.session_state[f"regenerate_{hash(content)}"] = True
+            st.info("🔄 Đang tạo lại...")
 
 def render_sidebar():
     """Render sidebar với thông tin và điều khiển"""
@@ -290,39 +353,256 @@ def render_question_carousel(questions, document_text):
         st.markdown(dots_html, unsafe_allow_html=True)
 
 def add_custom_css():
-    """Thêm CSS tùy chỉnh cho giao diện"""
+    """Enhanced CSS với modern animations và glassmorphism effects"""
     st.markdown("""
     <style>
-    /* Custom styles cho chat interface */
-    .chat-message {
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 0.5rem 0;
+    /* Enhanced Custom styles cho modern chat interface */
+    :root {
+        --primary-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        --secondary-gradient: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        --glass-bg: rgba(255, 255, 255, 0.1);
+        --glass-border: rgba(255, 255, 255, 0.2);
+        --shadow-light: 0 8px 32px 0 rgba(31, 38, 135, 0.37);
+        --blur-strength: blur(8px);
     }
     
-    .user-message {
-        background-color: #007bff;
+    /* Glassmorphism chat message containers */
+    .user-message-content {
+        background: var(--glass-bg);
+        backdrop-filter: var(--blur-strength);
+        -webkit-backdrop-filter: var(--blur-strength);
+        border-radius: 20px;
+        border: 1px solid var(--glass-border);
+        padding: 1.2rem;
+        box-shadow: var(--shadow-light);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .user-message-content::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: var(--primary-gradient);
+        opacity: 0.8;
+        z-index: -1;
+    }
+    
+    .assistant-message-content {
+        background: rgba(248, 250, 252, 0.9);
+        backdrop-filter: var(--blur-strength);
+        -webkit-backdrop-filter: var(--blur-strength);
+        border-radius: 20px;
+        border: 1px solid rgba(226, 232, 240, 0.8);
+        padding: 1.2rem;
+        box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.1);
+        position: relative;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .assistant-message-content:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 8px 30px 0 rgba(0, 0, 0, 0.15);
+    }
+    
+    /* Enhanced message metadata */
+    .message-metadata {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-top: 0.8rem;
+        padding-top: 0.8rem;
+        border-top: 1px solid rgba(255, 255, 255, 0.2);
+        font-size: 0.8rem;
+        opacity: 0.8;
+    }
+    
+    .timestamp {
+        color: rgba(255, 255, 255, 0.9);
+        font-weight: 500;
+    }
+    
+    .status-indicator {
+        background: rgba(34, 197, 94, 0.9);
         color: white;
-        margin-left: 20%;
+        padding: 2px 6px;
+        border-radius: 50%;
+        font-size: 0.7rem;
+        font-weight: bold;
     }
     
-    .assistant-message {
-        background-color: #f1f3f4;
-        color: #333;
-        margin-right: 20%;
+    .ai-indicator {
+        background: linear-gradient(45deg, #3b82f6, #1d4ed8);
+        color: white;
+        padding: 4px 8px;
+        border-radius: 12px;
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: 0.5px;
     }
     
-    /* Sidebar styling */
+    /* Enhanced typing animation */
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        padding: 1rem;
+        background: rgba(248, 250, 252, 0.95);
+        border-radius: 20px;
+        margin: 0.5rem 0;
+        animation: pulse 2s ease-in-out infinite;
+    }
+    
+    @keyframes pulse {
+        0%, 100% { opacity: 0.8; }
+        50% { opacity: 1; }
+    }
+    
+    .typing-indicator span {
+        color: #6366f1;
+        font-weight: 500;
+        animation: typing-text 1.5s ease-in-out infinite;
+    }
+    
+    @keyframes typing-text {
+        0%, 100% { opacity: 0.6; }
+        50% { opacity: 1; }
+    }
+    
+    /* Enhanced button styles */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        border-radius: 12px;
+        color: white;
+        font-weight: 600;
+        padding: 0.6rem 1.2rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 4px 15px 0 rgba(102, 126, 234, 0.4);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stButton > button::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        transition: left 0.5s;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 8px 25px 0 rgba(102, 126, 234, 0.6);
+    }
+    
+    .stButton > button:hover::before {
+        left: 100%;
+    }
+    
+    /* Message action buttons */
+    .stButton[key*="like_"] > button {
+        background: linear-gradient(135deg, #ec4899, #be185d);
+        padding: 0.4rem 0.8rem;
+        font-size: 0.8rem;
+        min-width: auto;
+        box-shadow: 0 2px 8px 0 rgba(236, 72, 153, 0.3);
+    }
+    
+    .stButton[key*="copy_"] > button {
+        background: linear-gradient(135deg, #06b6d4, #0891b2);
+        box-shadow: 0 2px 8px 0 rgba(6, 182, 212, 0.3);
+    }
+    
+    .stButton[key*="regenerate_"] > button {
+        background: linear-gradient(135deg, #f59e0b, #d97706);
+        box-shadow: 0 2px 8px 0 rgba(245, 158, 11, 0.3);
+    }
+    
+    /* Enhanced sidebar styling với glassmorphism */
     .sidebar .sidebar-content {
-        background-color: #f8f9fa;
+        background: linear-gradient(145deg, rgba(248, 250, 252, 0.9), rgba(241, 245, 249, 0.9));
+        backdrop-filter: var(--blur-strength);
+        -webkit-backdrop-filter: var(--blur-strength);
+        border-right: 1px solid rgba(226, 232, 240, 0.8);
     }
     
-    /* File uploader styling */
+    /* Enhanced file uploader với modern animations */
     .uploadedFile {
-        border: 2px dashed #007bff;
-        border-radius: 10px;
-        padding: 20px;
+        border: 2px dashed #667eea;
+        border-radius: 20px;
+        padding: 2rem;
         text-align: center;
+        background: linear-gradient(135deg, rgba(248, 250, 252, 0.9), rgba(255, 255, 255, 0.9));
+        backdrop-filter: var(--blur-strength);
+        -webkit-backdrop-filter: var(--blur-strength);
+        transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .uploadedFile::before {
+        content: '';
+        position: absolute;
+        top: -50%;
+        left: -50%;
+        width: 200%;
+        height: 200%;
+        background: linear-gradient(45deg, transparent, rgba(102, 126, 234, 0.1), transparent);
+        transform: rotate(45deg);
+        transition: all 0.6s;
+        opacity: 0;
+    }
+    
+    .uploadedFile:hover {
+        border-color: #764ba2;
+        transform: translateY(-5px);
+        box-shadow: 0 15px 35px 0 rgba(102, 126, 234, 0.3);
+    }
+    
+    .uploadedFile:hover::before {
+        opacity: 1;
+        top: -25%;
+        left: -25%;
+    }
+    
+    /* Loading states với modern spinners */
+    .stSpinner {
+        border-color: #667eea !important;
+    }
+    
+    /* Custom loading overlay */
+    .loading-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(10px);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 9999;
+    }
+    
+    .loading-spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(102, 126, 234, 0.3);
+        border-top: 3px solid #667eea;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+    }
+    
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
     }
     
     /* Button styling */
