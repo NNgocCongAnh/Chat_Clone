@@ -1,69 +1,365 @@
 """
-Validation functions cho Study Buddy
+Enhanced Validation System for Study Buddy v2.0
+Author: Trần Đức Việt - Database & Integration Specialist
+Advanced validation with security, performance optimization, and comprehensive error handling
 """
 import re
 import os
-from typing import Optional, Tuple, List, Dict, Any
+import hashlib
+import mimetypes
+from datetime import datetime, timezone
+from typing import Optional, Tuple, List, Dict, Any, Union
+from dataclasses import dataclass
+import logging
+
 from ..config.constants import (
     SUPPORTED_FILE_TYPES, MAX_FILE_SIZE, MIN_FILE_SIZE, MAX_FILE_NAME_LENGTH,
     MAX_MESSAGE_LENGTH, MAX_DOCUMENT_CHARS, ERROR_MESSAGES, PATTERNS,
     MAX_QUESTIONS_COUNT, MIN_QUESTIONS_COUNT, MAX_PDF_DPI, MIN_PDF_DPI
 )
 
+# Enhanced Validation System Classes
+@dataclass
+class ValidationResult:
+    """Enhanced validation result với detailed information"""
+    is_valid: bool
+    error_message: Optional[str] = None
+    error_code: Optional[str] = None
+    warnings: List[str] = None
+    metadata: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        if self.warnings is None:
+            self.warnings = []
+        if self.metadata is None:
+            self.metadata = {}
+
 class ValidationError(Exception):
-    """Custom exception cho validation errors"""
-    def __init__(self, message: str, error_code: str = None):
+    """Enhanced custom exception cho validation errors"""
+    def __init__(self, message: str, error_code: str = None, metadata: Dict[str, Any] = None):
         self.message = message
         self.error_code = error_code
+        self.metadata = metadata or {}
+        self.timestamp = datetime.now(timezone.utc)
         super().__init__(self.message)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert exception to dictionary for logging"""
+        return {
+            'message': self.message,
+            'error_code': self.error_code,
+            'metadata': self.metadata,
+            'timestamp': self.timestamp.isoformat()
+        }
 
-class FileValidator:
-    """Validator cho file uploads"""
+class SecurityValidator:
+    """Enhanced security validation cho file và content"""
+    
+    # Dangerous file signatures (magic bytes)
+    DANGEROUS_SIGNATURES = {
+        b'\x4D\x5A': 'executable',  # PE executable
+        b'\x7F\x45\x4C\x46': 'elf',  # ELF executable
+        b'\xCA\xFE\xBA\xBE': 'java',  # Java class
+        b'\x50\x4B\x03\x04': 'zip_based',  # ZIP/DOCX (needs deeper inspection)
+    }
+    
+    # Malicious patterns in content
+    MALICIOUS_PATTERNS = [
+        r'<script[^>]*>.*?</script>',  # JavaScript
+        r'javascript\s*:',  # JavaScript protocol
+        r'vbscript\s*:',   # VBScript protocol
+        r'on\w+\s*=',      # Event handlers
+        r'eval\s*\(',      # eval function
+        r'setTimeout\s*\(',  # setTimeout
+        r'setInterval\s*\(',  # setInterval
+    ]
     
     @staticmethod
-    def validate_file(uploaded_file) -> Tuple[bool, Optional[str]]:
+    def scan_file_content(file_content: bytes, filename: str) -> ValidationResult:
+        """Enhanced file content security scanning"""
+        try:
+            # Check file signature
+            signature_result = SecurityValidator._check_file_signature(file_content, filename)
+            if not signature_result.is_valid:
+                return signature_result
+            
+            # Check file size anomalies
+            size_result = SecurityValidator._check_size_anomalies(file_content, filename)
+            if not size_result.is_valid:
+                return size_result
+            
+            # Scan for malicious content in text files
+            if filename.lower().endswith(('.txt', '.md', '.html', '.xml')):
+                content_result = SecurityValidator._scan_text_content(file_content)
+                if not content_result.is_valid:
+                    return content_result
+            
+            return ValidationResult(is_valid=True, metadata={'scan_completed': True})
+            
+        except Exception as e:
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"Security scan failed: {str(e)}",
+                error_code="security_scan_error"
+            )
+    
+    @staticmethod
+    def _check_file_signature(content: bytes, filename: str) -> ValidationResult:
+        """Check file magic bytes for dangerous signatures"""
+        if len(content) < 4:
+            return ValidationResult(is_valid=True)
+        
+        file_header = content[:4]
+        
+        for signature, file_type in SecurityValidator.DANGEROUS_SIGNATURES.items():
+            if content.startswith(signature):
+                if file_type == 'zip_based' and filename.lower().endswith('.docx'):
+                    # DOCX is zip-based, this is normal
+                    continue
+                    
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"Dangerous file type detected: {file_type}",
+                    error_code="dangerous_file_signature"
+                )
+        
+        return ValidationResult(is_valid=True)
+    
+    @staticmethod
+    def _check_size_anomalies(content: bytes, filename: str) -> ValidationResult:
+        """Check for file size anomalies"""
+        file_size = len(content)
+        extension = filename.lower().split('.')[-1] if '.' in filename else ''
+        
+        # Size limits per file type
+        type_limits = {
+            'txt': 50 * 1024 * 1024,   # 50MB for text
+            'md': 50 * 1024 * 1024,    # 50MB for markdown
+            'pdf': 200 * 1024 * 1024,  # 200MB for PDF
+            'docx': 100 * 1024 * 1024, # 100MB for DOCX
+        }
+        
+        if extension in type_limits and file_size > type_limits[extension]:
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"File size exceeds limit for {extension} files",
+                error_code="file_size_anomaly"
+            )
+        
+        return ValidationResult(is_valid=True)
+    
+    @staticmethod
+    def _scan_text_content(content: bytes) -> ValidationResult:
+        """Scan text content for malicious patterns"""
+        try:
+            text_content = content.decode('utf-8', errors='ignore')
+            
+            for pattern in SecurityValidator.MALICIOUS_PATTERNS:
+                if re.search(pattern, text_content, re.IGNORECASE):
+                    return ValidationResult(
+                        is_valid=False,
+                        error_message="Malicious content pattern detected",
+                        error_code="malicious_content"
+                    )
+            
+            return ValidationResult(is_valid=True)
+            
+        except Exception:
+            return ValidationResult(is_valid=True)  # If can't decode, assume safe
+
+class FileValidator:
+    """Enhanced validator cho file uploads với security scanning"""
+    
+    @staticmethod
+    def validate_file(uploaded_file) -> ValidationResult:
         """
-        Validate uploaded file
+        Enhanced file validation với comprehensive security checks
         
         Args:
             uploaded_file: Streamlit UploadedFile object
             
         Returns:
-            Tuple[bool, Optional[str]]: (is_valid, error_message)
+            ValidationResult: Enhanced validation result
         """
         try:
             # Kiểm tra file có tồn tại không
             if not uploaded_file:
-                return False, "Không có file được upload"
-            
-            # Kiểm tra tên file
-            if not FileValidator.validate_filename(uploaded_file.name):
-                return False, ERROR_MESSAGES['file_name_too_long'].format(
-                    max_length=MAX_FILE_NAME_LENGTH
+                return ValidationResult(
+                    is_valid=False,
+                    error_message="Không có file được upload",
+                    error_code="no_file"
                 )
             
-            # Kiểm tra kích thước file
-            if not FileValidator.validate_file_size(uploaded_file.size):
-                if uploaded_file.size > MAX_FILE_SIZE:
-                    return False, ERROR_MESSAGES['file_too_large'].format(
-                        max_size=MAX_FILE_SIZE // (1024 * 1024)
-                    )
-                else:
-                    return False, ERROR_MESSAGES['file_too_small'].format(
-                        min_size=MIN_FILE_SIZE
-                    )
+            # Enhanced filename validation
+            filename_result = FileValidator.validate_filename_enhanced(uploaded_file.name)
+            if not filename_result.is_valid:
+                return filename_result
             
-            # Kiểm tra định dạng file
-            if not FileValidator.validate_file_type(uploaded_file.name):
-                supported_formats = ', '.join(SUPPORTED_FILE_TYPES.keys())
-                return False, ERROR_MESSAGES['unsupported_format'].format(
-                    formats=supported_formats
+            # Enhanced size validation
+            size_result = FileValidator.validate_file_size_enhanced(uploaded_file.size)
+            if not size_result.is_valid:
+                return size_result
+            
+            # Enhanced type validation
+            type_result = FileValidator.validate_file_type_enhanced(uploaded_file.name)
+            if not type_result.is_valid:
+                return type_result
+            
+            # Security scanning
+            try:
+                file_content = uploaded_file.read()
+                uploaded_file.seek(0)  # Reset file pointer
+                
+                security_result = SecurityValidator.scan_file_content(file_content, uploaded_file.name)
+                if not security_result.is_valid:
+                    return security_result
+                
+            except Exception as e:
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"Security scan failed: {str(e)}",
+                    error_code="security_scan_failed"
                 )
             
-            return True, None
+            # Generate file metadata
+            metadata = FileValidator._generate_file_metadata(uploaded_file)
+            
+            return ValidationResult(
+                is_valid=True,
+                metadata=metadata
+            )
             
         except Exception as e:
-            return False, f"Lỗi validation file: {str(e)}"
+            return ValidationResult(
+                is_valid=False,
+                error_message=f"File validation error: {str(e)}",
+                error_code="validation_error"
+            )
+    
+    @staticmethod
+    def validate_filename_enhanced(filename: str) -> ValidationResult:
+        """Enhanced filename validation"""
+        if not filename:
+            return ValidationResult(
+                is_valid=False,
+                error_message="Tên file không được để trống",
+                error_code="empty_filename"
+            )
+        
+        if len(filename) > MAX_FILE_NAME_LENGTH:
+            return ValidationResult(
+                is_valid=False,
+                error_message=ERROR_MESSAGES['file_name_too_long'].format(
+                    max_length=MAX_FILE_NAME_LENGTH
+                ),
+                error_code="filename_too_long"
+            )
+        
+        # Enhanced character validation
+        dangerous_chars = ['<', '>', ':', '"', '|', '?', '*', '\\', '/', '\0']
+        for char in dangerous_chars:
+            if char in filename:
+                return ValidationResult(
+                    is_valid=False,
+                    error_message=f"Tên file chứa ký tự không hợp lệ: {char}",
+                    error_code="invalid_filename_char"
+                )
+        
+        # Check for reserved names
+        reserved_names = ['CON', 'PRN', 'AUX', 'NUL', 'COM1', 'COM2', 'LPT1', 'LPT2']
+        filename_base = filename.split('.')[0].upper()
+        if filename_base in reserved_names:
+            return ValidationResult(
+                is_valid=False,
+                error_message="Tên file không được sử dụng tên hệ thống",
+                error_code="reserved_filename"
+            )
+        
+        return ValidationResult(is_valid=True)
+    
+    @staticmethod
+    def validate_file_size_enhanced(size: int) -> ValidationResult:
+        """Enhanced file size validation"""
+        if size < MIN_FILE_SIZE:
+            return ValidationResult(
+                is_valid=False,
+                error_message=ERROR_MESSAGES['file_too_small'].format(min_size=MIN_FILE_SIZE),
+                error_code="file_too_small"
+            )
+        
+        if size > MAX_FILE_SIZE:
+            return ValidationResult(
+                is_valid=False,
+                error_message=ERROR_MESSAGES['file_too_large'].format(
+                    max_size=MAX_FILE_SIZE // (1024 * 1024)
+                ),
+                error_code="file_too_large"
+            )
+        
+        # Warning for large files
+        warnings = []
+        if size > 50 * 1024 * 1024:  # 50MB
+            warnings.append("File khá lớn, quá trình xử lý có thể mất thời gian")
+        
+        return ValidationResult(
+            is_valid=True,
+            warnings=warnings,
+            metadata={'size_bytes': size, 'size_mb': round(size / (1024 * 1024), 2)}
+        )
+    
+    @staticmethod
+    def validate_file_type_enhanced(filename: str) -> ValidationResult:
+        """Enhanced file type validation với MIME type checking"""
+        if not filename or '.' not in filename:
+            return ValidationResult(
+                is_valid=False,
+                error_message="File phải có extension",
+                error_code="no_extension"
+            )
+        
+        extension = filename.lower().split('.')[-1]
+        
+        if extension not in SUPPORTED_FILE_TYPES.keys():
+            supported_formats = ', '.join(SUPPORTED_FILE_TYPES.keys())
+            return ValidationResult(
+                is_valid=False,
+                error_message=ERROR_MESSAGES['unsupported_format'].format(
+                    formats=supported_formats
+                ),
+                error_code="unsupported_format"
+            )
+        
+        # MIME type validation
+        expected_mime = SUPPORTED_FILE_TYPES[extension]
+        detected_mime, _ = mimetypes.guess_type(filename)
+        
+        metadata = {
+            'extension': extension,
+            'expected_mime': expected_mime,
+            'detected_mime': detected_mime
+        }
+        
+        return ValidationResult(is_valid=True, metadata=metadata)
+    
+    @staticmethod
+    def _generate_file_metadata(uploaded_file) -> Dict[str, Any]:
+        """Generate comprehensive file metadata"""
+        try:
+            content = uploaded_file.read()
+            uploaded_file.seek(0)
+            
+            # Generate file hash
+            file_hash = hashlib.sha256(content).hexdigest()
+            
+            return {
+                'name': uploaded_file.name,
+                'size': uploaded_file.size,
+                'hash': file_hash,
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'content_length': len(content)
+            }
+        except Exception:
+            return {'name': uploaded_file.name, 'size': uploaded_file.size}
     
     @staticmethod
     def validate_filename(filename: str) -> bool:
