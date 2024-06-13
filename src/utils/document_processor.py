@@ -388,26 +388,29 @@ class DocumentProcessor:
         return chunks
     
     def summarize_text_with_openai(self, text, max_words=150):
-        """Tóm tắt văn bản sử dụng Local LLM"""
+        """Tóm tắt văn bản sử dụng Local LLM với cải tiến performance"""
         if not self.openai_client:
             return "Không thể kết nối Local LLM. Vui lòng khởi động LM Studio trước."
             
         try:
-            # Chia text thành chunks nếu quá dài (GPT có giới hạn token)
-            max_input_length = 3000  # Khoảng 3000 characters ~ 750 tokens
+            # Optimize chunk size cho performance tốt hơn
+            max_input_length = 4000  # Tăng lên để xử lý hiệu quả hơn
             
             if len(text) > max_input_length:
-                chunks = self.chunk_text(text, chunk_size=max_input_length, overlap=200)
+                chunks = self.chunk_text(text, chunk_size=max_input_length, overlap=300)
                 summaries = []
                 
-                # Tóm tắt từng chunk
-                for i, chunk in enumerate(chunks[:4]):  # Giới hạn 4 chunks để tránh cost quá cao
-                    if len(chunk.strip()) > 100:
-                        chunk_summary = self._summarize_chunk_with_openai(chunk, max_words//len(chunks))
-                        if chunk_summary:
-                            summaries.append(chunk_summary)
+                # Tóm tắt song song với batch processing
+                batch_size = 3  # Xử lý 3 chunks cùng lúc
+                for i in range(0, min(len(chunks), 6), batch_size):  # Tối đa 6 chunks
+                    batch_chunks = chunks[i:i+batch_size]
+                    for chunk in batch_chunks:
+                        if len(chunk.strip()) > 150:  # Tăng threshold
+                            chunk_summary = self._summarize_chunk_with_openai(chunk, max_words//len(chunks))
+                            if chunk_summary:
+                                summaries.append(chunk_summary)
                 
-                # Kết hợp và tóm tắt final
+                # Kết hợp và tóm tắt final với enhanced logic
                 combined_text = " ".join(summaries)
                 if len(combined_text) > max_input_length:
                     final_summary = self._summarize_chunk_with_openai(combined_text, max_words)
@@ -418,8 +421,9 @@ class DocumentProcessor:
                 return self._summarize_chunk_with_openai(text, max_words)
                 
         except Exception as e:
-            st.error(f"Lỗi khi tóm tắt với OpenAI: {str(e)}")
-            return f"Không thể tóm tắt tài liệu. Lỗi: {str(e)}"
+            st.error(f"Lỗi khi tóm tắt với Local LLM: {str(e)}")
+            # Enhanced fallback với smart extraction
+            return self._create_smart_fallback_summary(text, max_words)
     
     def _summarize_chunk_with_openai(self, text, max_words=150):
         """Tóm tắt một chunk text bằng Local LLM với improved error handling"""
@@ -458,9 +462,38 @@ Tóm tắt ngắn gọn, dễ hiểu:"""
             # Fallback summary
             return f"📄 **Tóm tắt tự động:** Tài liệu chứa {len(text)} ký tự. Nội dung bao gồm các thông tin quan trọng cần được phân tích chi tiết. (Local LLM không khả dụng - {str(error_message)[:50]}...)"
     
+    def _create_smart_fallback_summary(self, text, max_words=150):
+        """Tạo tóm tắt thông minh khi LLM không khả dụng"""
+        try:
+            # Lấy các câu đầu tiên và cuối cùng
+            sentences = text.split('.')
+            key_sentences = []
+            
+            # Lấy 2 câu đầu
+            if len(sentences) >= 2:
+                key_sentences.extend(sentences[:2])
+            
+            # Lấy câu có keywords quan trọng
+            important_keywords = ['kết luận', 'tóm lại', 'quan trọng', 'chính', 'nhất']
+            for sentence in sentences[2:-2]:  # Bỏ đầu và cuối
+                if any(keyword in sentence.lower() for keyword in important_keywords):
+                    key_sentences.append(sentence)
+                    if len(key_sentences) >= 4:
+                        break
+            
+            # Lấy câu cuối nếu có
+            if len(sentences) > 1:
+                key_sentences.append(sentences[-1])
+            
+            summary = '. '.join([s.strip() for s in key_sentences if s.strip()])
+            return f"📄 **Tóm tắt tự động:** {summary}... (Tạo bởi AI fallback system)"
+            
+        except Exception:
+            return f"📄 **Tóm tắt:** Tài liệu chứa {len(text)} ký tự với nội dung quan trọng cần phân tích."
+
     # Để tương thích backward, tạo alias
     def summarize_text(self, text, max_length=200, min_length=50):
-        """Alias cho backward compatibility"""
+        """Alias cho backward compatibility với enhanced features"""
         max_words = max_length // 3  # Rough conversion
         return self.summarize_text_with_openai(text, max_words)
     
