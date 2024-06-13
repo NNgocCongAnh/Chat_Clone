@@ -13,15 +13,23 @@ from ..utils.ui_components import (
 )
 from supabase import create_client
 
+# Enhanced Home Page Design
+# Author: Nguyễn Ngọc Công Anh - Frontend & UI/UX Enhancement
+
 # Load environment variables
 load_dotenv()
 
-# Cấu hình trang
+# Enhanced page configuration với custom styling
 st.set_page_config(
-    page_title="ChatGPT Clone",
-    page_icon="💬",
+    page_title="Study Buddy - AI Learning Assistant",
+    page_icon="🎓",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': 'https://www.extremelycoolapp.com/help',
+        'Report a bug': "https://www.extremelycoolapp.com/bug",
+        'About': "# Study Buddy v2.0\nPowered by AI for enhanced learning experience!"
+    }
 )
 
 # Load CSS tùy chỉnh
@@ -89,28 +97,128 @@ def init_session_state():
     if "document_text" not in st.session_state:
         st.session_state.document_text = ""
 
-def main():
-    # Load CSS và khởi tạo
-    try:
-        load_css()
-        add_custom_css()  # Thêm CSS cho carousel
-    except FileNotFoundError:
-        pass  # CSS file chưa tồn tại
-    
-    init_session_state()
-    
-    # Load user sessions nếu đã login
-    if hasattr(st.session_state, 'user_id') and st.session_state.user_id:
-        if not st.session_state.session_loaded:
-            st.session_state.user_sessions = st.session_state.chat_persistence.get_user_sessions(st.session_state.user_id)
-            st.session_state.session_loaded = True
-    
-    # Sidebar
-    with st.sidebar:
-        st.title("💬 Study Buddy")
+def render_welcome_hero():
+    """Render enhanced welcome hero section"""
+    if not st.session_state.messages and not st.session_state.uploaded_documents:
+        # Enhanced hero section với animations
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 3rem 2rem;
+            border-radius: 20px;
+            text-align: center;
+            margin: 2rem 0;
+            color: white;
+            position: relative;
+            overflow: hidden;
+        ">
+            <div style="position: relative; z-index: 2;">
+                <h1 style="font-size: 3rem; margin-bottom: 1rem; color: white;">
+                    🎓 Study Buddy
+                </h1>
+                <h2 style="font-size: 1.5rem; margin-bottom: 2rem; opacity: 0.9; color: white;">
+                    AI Learning Assistant được nâng cấp
+                </h2>
+                <div style="display: flex; justify-content: center; gap: 2rem; flex-wrap: wrap; margin-top: 2rem;">
+                    <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 12px; backdrop-filter: blur(10px);">
+                        <h3 style="color: white; margin: 0;">📚 Smart Document Analysis</h3>
+                        <p style="color: rgba(255,255,255,0.8); margin: 0.5rem 0 0 0;">AI-powered document understanding</p>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 12px; backdrop-filter: blur(10px);">
+                        <h3 style="color: white; margin: 0;">💬 Interactive Chat</h3>
+                        <p style="color: rgba(255,255,255,0.8); margin: 0.5rem 0 0 0;">Natural conversation about your content</p>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 12px; backdrop-filter: blur(10px);">
+                        <h3 style="color: white; margin: 0;">🎯 Page-Specific Chat</h3>
+                        <p style="color: rgba(255,255,255,0.8); margin: 0.5rem 0 0 0;">Focus on specific PDF pages</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Hiển thị thông tin user nếu có
+        # Quick start guide
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.markdown("""
+            <div style="
+                background: white;
+                padding: 1.5rem;
+                border-radius: 16px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                text-align: center;
+                border: 1px solid #e5e7eb;
+            ">
+                <h3 style="color: #667eea;">📋 Bước 1</h3>
+                <p style="color: #6b7280;">Upload tài liệu PDF, DOCX, TXT hoặc MD từ sidebar</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown("""
+            <div style="
+                background: white;
+                padding: 1.5rem;
+                border-radius: 16px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                text-align: center;
+                border: 1px solid #e5e7eb;
+            ">
+                <h3 style="color: #667eea;">💭 Bước 2</h3>
+                <p style="color: #6b7280;">Chọn câu hỏi gợi ý hoặc đặt câu hỏi tự do</p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        with col3:
+            st.markdown("""
+            <div style="
+                background: white;
+                padding: 1.5rem;
+                border-radius: 16px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                text-align: center;
+                border: 1px solid #e5e7eb;
+            ">
+                <h3 style="color: #667eea;">🎯 Bước 3</h3>
+                <p style="color: #6b7280;">Sử dụng tab "Hỏi theo trang" để chat với từng trang PDF</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+def render_enhanced_sidebar():
+    """Enhanced sidebar với modern design"""
+    with st.sidebar:
+        # Custom header với gradient
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            padding: 1.5rem;
+            border-radius: 16px;
+            margin-bottom: 2rem;
+            text-align: center;
+            color: white;
+        ">
+            <h2 style="margin: 0; color: white;">🎓 Study Buddy</h2>
+            <p style="margin: 0.5rem 0 0 0; opacity: 0.9; color: white;">AI Learning Assistant</p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # User session management
         if hasattr(st.session_state, 'user_id') and st.session_state.user_id:
+            # Enhanced user info section
+            st.markdown("""
+            <div style="
+                background: linear-gradient(135deg, #f0f9ff, #e0f2fe);
+                padding: 1rem;
+                border-radius: 12px;
+                border: 1px solid #bae6fd;
+                margin-bottom: 1rem;
+            ">
+                <p style="margin: 0; color: #0369a1; font-weight: 600;">👤 Đã đăng nhập</p>
+                <small style="color: #0284c7;">Session được lưu tự động</small>
+            </div>
+            """, unsafe_allow_html=True)
+            
             col2 = st.columns([4,4])[0]
             with col2:
                 if st.button("🚪 Đăng xuất", use_container_width=True, type="secondary"):
@@ -127,6 +235,98 @@ def main():
                     st.session_state.document_text = ""
                     st.success("✅ Đã đăng xuất!")
                     st.rerun()
+
+def main():
+    # Enhanced CSS loading với fallback
+    try:
+        load_css()
+        add_custom_css()
+        
+        # Additional inline CSS for enhanced UI
+        st.markdown("""
+        <style>
+        /* Enhanced page styling */
+        .main .block-container {
+            padding-top: 1rem;
+            padding-bottom: 3rem;
+        }
+        
+        /* Enhanced tabs styling */
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            background: linear-gradient(90deg, #f8fafc, #f1f5f9);
+            padding: 0.5rem;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .stTabs [data-baseweb="tab"] {
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+            padding: 0.75rem 1.5rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+        
+        .stTabs [aria-selected="true"] {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-color: #667eea;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        /* Enhanced divider */
+        hr {
+            margin: 2rem 0;
+            border: none;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
+        }
+        
+        /* Enhanced containers */
+        .element-container {
+            margin-bottom: 1rem;
+        }
+        
+        /* Enhanced expander */
+        .streamlit-expanderHeader {
+            background: linear-gradient(90deg, #f8fafc, #ffffff);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+        }
+        
+        .streamlit-expanderHeader:hover {
+            background: linear-gradient(90deg, #e2e8f0, #f8fafc);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+    except FileNotFoundError:
+        # Fallback CSS nếu file không tồn tại
+        st.markdown("""
+        <style>
+        .main .block-container { padding-top: 1rem; }
+        .stButton > button { border-radius: 8px; }
+        </style>
+        """, unsafe_allow_html=True)
+    
+    init_session_state()
+    
+    # Load user sessions nếu đã login
+    if hasattr(st.session_state, 'user_id') and st.session_state.user_id:
+        if not st.session_state.session_loaded:
+            st.session_state.user_sessions = st.session_state.chat_persistence.get_user_sessions(st.session_state.user_id)
+            st.session_state.session_loaded = True
+    
+    # Enhanced sidebar
+    render_enhanced_sidebar()
+    
+    # Continue with existing sidebar logic but with enhanced styling
+    with st.sidebar:
         
         # Session Management
         if hasattr(st.session_state, 'user_id') and st.session_state.user_id:
@@ -286,10 +486,26 @@ def main():
             st.session_state.messages = []
             st.rerun()
     
-    # Main chat area với tabs
-    st.title("Study Buddy 💬")
+    # Enhanced main area với welcome hero
+    render_welcome_hero()
     
-    # Render giao diện tabs
+    # Enhanced title section
+    if st.session_state.messages or st.session_state.uploaded_documents:
+        st.markdown("""
+        <div style="text-align: center; margin: 2rem 0;">
+            <h1 style="
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+                font-size: 2.5rem;
+                margin: 0;
+            ">🎓 Study Buddy</h1>
+            <p style="color: #6b7280; margin: 0.5rem 0 0 0;">AI Learning Assistant đang hoạt động</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    # Enhanced tabs with modern styling
     tab1, tab2 = render_tabbed_interface()
     
     # TAB 1: Chat trực tiếp (như cũ)
