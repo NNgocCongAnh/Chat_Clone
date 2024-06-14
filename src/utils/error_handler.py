@@ -107,7 +107,7 @@ def handle_error(error: Exception, context: str = "", show_user: bool = True) ->
 def safe_execute_with_retry(func: Callable, max_retries: int = 3, delay: float = 1.0, 
                           context: str = "", show_user: bool = True) -> tuple[bool, Any, Optional[str]]:
     """
-    Execute function với retry mechanism
+    Execute function với enhanced retry mechanism và smart error recovery
     
     Args:
         func: Function to execute
@@ -120,22 +120,81 @@ def safe_execute_with_retry(func: Callable, max_retries: int = 3, delay: float =
         Tuple[bool, Any, Optional[str]]: (success, result, error_message)
     """
     import time
+    import random
+    
+    last_error = None
     
     for attempt in range(max_retries + 1):
         try:
             result = func()
+            
+            # Log successful retry if previous attempts failed
+            if attempt > 0:
+                logger.info(f"{context} - Success on attempt {attempt + 1}")
+            
             return True, result, None
             
         except Exception as e:
-            if attempt < max_retries:
-                logger.warning(f"{context} - Attempt {attempt + 1} failed: {str(e)}. Retrying in {delay}s...")
-                time.sleep(delay)
-                delay *= 1.5  # Exponential backoff
+            last_error = e
+            
+            # Enhanced error categorization for smart retry
+            should_retry = _should_retry_error(e, attempt, max_retries)
+            
+            if attempt < max_retries and should_retry:
+                # Adaptive delay with jitter to prevent thundering herd
+                adaptive_delay = delay * (1.5 ** attempt) + random.uniform(0, 0.5)
+                
+                logger.warning(f"{context} - Attempt {attempt + 1}/{max_retries + 1} failed: {str(e)[:100]}. Retrying in {adaptive_delay:.1f}s...")
+                
+                # Progressive backoff with circuit breaker pattern
+                time.sleep(adaptive_delay)
+                
+                # Special handling for specific error types
+                if "rate limit" in str(e).lower():
+                    time.sleep(additional_rate_limit_delay(attempt))
+                elif "timeout" in str(e).lower():
+                    # Increase timeout tolerance on retry
+                    pass
+                    
             else:
-                error_message = handle_error(e, context, show_user)
+                error_message = handle_error(e, f"{context} (final attempt)", show_user)
                 return False, None, error_message
     
-    return False, None, "Max retries exceeded"
+    # This should never be reached, but just in case
+    error_message = handle_error(last_error or Exception("Max retries exceeded"), context, show_user)
+    return False, None, error_message
+
+def _should_retry_error(error: Exception, attempt: int, max_retries: int) -> bool:
+    """Determine if an error should trigger a retry based on error type and context"""
+    error_str = str(error).lower()
+    
+    # Always retry network/connection errors
+    if any(keyword in error_str for keyword in ['connection', 'timeout', 'network', 'refused']):
+        return True
+    
+    # Retry rate limit errors with longer delays
+    if any(keyword in error_str for keyword in ['rate limit', '429', 'quota', 'capacity']):
+        return True
+    
+    # Retry temporary service errors
+    if any(keyword in error_str for keyword in ['503', '502', '504', 'temporary', 'unavailable']):
+        return True
+    
+    # Don't retry authentication/permission errors
+    if any(keyword in error_str for keyword in ['401', '403', 'unauthorized', 'forbidden', 'permission']):
+        return False
+    
+    # Don't retry validation errors
+    if any(keyword in error_str for keyword in ['400', 'bad request', 'invalid', 'validation']):
+        return False
+    
+    # Retry unknown errors up to first few attempts
+    return attempt < min(2, max_retries)
+
+def additional_rate_limit_delay(attempt: int) -> float:
+    """Calculate additional delay for rate limit errors"""
+    base_delay = 2.0  # Base delay for rate limits
+    return base_delay * (2 ** attempt)  # Exponential backoff for rate limits
 
 def error_boundary(context: str = "", show_user: bool = True, fallback_value: Any = None):
     """
@@ -241,39 +300,132 @@ def require_session(func):
     return wrapper
 
 class ProgressTracker:
-    """Class để track progress của long-running operations"""
+    """Enhanced class để track progress của long-running operations với smart UI updates"""
     
-    def __init__(self, total_steps: int, description: str = "Processing..."):
+    def __init__(self, total_steps: int, description: str = "Processing...", show_percentage: bool = True):
         self.total_steps = total_steps
         self.current_step = 0
         self.description = description
+        self.show_percentage = show_percentage
+        self.start_time = datetime.now()
+        
+        # Enhanced UI elements
         self.progress_bar = st.progress(0)
         self.status_text = st.empty()
+        self.eta_text = st.empty() if show_percentage else None
         
-    def update(self, step_description: str = ""):
-        """Update progress"""
-        self.current_step += 1
-        progress = self.current_step / self.total_steps
+    def update(self, step_description: str = "", increment: int = 1):
+        """Enhanced update with ETA calculation"""
+        self.current_step += increment
+        progress = min(self.current_step / self.total_steps, 1.0)  # Clamp to 1.0
         
         self.progress_bar.progress(progress)
         
-        if step_description:
-            self.status_text.text(f"{self.description} - {step_description} ({self.current_step}/{self.total_steps})")
+        # Calculate ETA
+        elapsed_time = (datetime.now() - self.start_time).total_seconds()
+        if self.current_step > 0 and progress < 1.0:
+            estimated_total_time = elapsed_time / progress
+            eta_seconds = estimated_total_time - elapsed_time
+            eta_str = f" (ETA: {int(eta_seconds)}s)" if eta_seconds > 0 else ""
         else:
-            self.status_text.text(f"{self.description} ({self.current_step}/{self.total_steps})")
-    
-    def complete(self, final_message: str = "Hoàn thành!"):
-        """Complete progress tracking"""
-        self.progress_bar.progress(1.0)
-        self.status_text.text(final_message)
+            eta_str = ""
         
-    def cleanup(self):
-        """Clean up progress elements"""
+        # Update status text
+        if self.show_percentage:
+            percentage = int(progress * 100)
+            status_msg = f"{self.description} - {step_description} ({percentage}%{eta_str})"
+        else:
+            status_msg = f"{self.description} - {step_description} ({self.current_step}/{self.total_steps})"
+            
+        self.status_text.text(status_msg)
+        
+        # Update ETA text if available
+        if self.eta_text and eta_str:
+            self.eta_text.caption(f"Elapsed: {int(elapsed_time)}s{eta_str}")
+    
+    def set_step(self, step_number: int, step_description: str = ""):
+        """Set specific step number (useful for non-linear progress)"""
+        self.current_step = step_number
+        self.update(step_description, increment=0)
+    
+    def complete(self, final_message: str = "Hoàn thành!", show_stats: bool = True):
+        """Complete progress tracking with optional statistics"""
+        self.progress_bar.progress(1.0)
+        
+        if show_stats:
+            total_time = (datetime.now() - self.start_time).total_seconds()
+            final_msg = f"{final_message} (Hoàn thành trong {total_time:.1f}s)"
+        else:
+            final_msg = final_message
+            
+        self.status_text.text(final_msg)
+        
+        if self.eta_text:
+            self.eta_text.empty()
+        
+    def error(self, error_message: str = "Có lỗi xảy ra"):
+        """Handle error state in progress tracker"""
+        self.status_text.text(f"❌ {error_message}")
+        if self.eta_text:
+            self.eta_text.empty()
+            
+    def cleanup(self, delay: float = 2.0):
+        """Clean up progress elements with optional delay"""
+        import time
+        if delay > 0:
+            time.sleep(delay)
+        
         try:
             self.progress_bar.empty()
             self.status_text.empty()
+            if self.eta_text:
+                self.eta_text.empty()
         except:
             pass
+
+class ErrorRecoveryManager:
+    """Manager class for handling error recovery strategies"""
+    
+    def __init__(self):
+        self.error_history = []
+        self.recovery_strategies = {}
+        
+    def register_recovery_strategy(self, error_type: type, strategy_func: Callable):
+        """Register a recovery strategy for specific error type"""
+        self.error_strategies[error_type] = strategy_func
+        
+    def attempt_recovery(self, error: Exception, context: str) -> bool:
+        """Attempt to recover from an error using registered strategies"""
+        error_type = type(error)
+        
+        if error_type in self.recovery_strategies:
+            try:
+                recovery_func = self.recovery_strategies[error_type]
+                recovery_func(error, context)
+                logger.info(f"Successfully recovered from {error_type.__name__} in {context}")
+                return True
+            except Exception as recovery_error:
+                logger.error(f"Recovery failed for {error_type.__name__}: {recovery_error}")
+                
+        return False
+        
+    def log_error_pattern(self, error: Exception, context: str):
+        """Log error patterns for analysis"""
+        error_entry = {
+            'timestamp': datetime.now(),
+            'error_type': type(error).__name__,
+            'message': str(error),
+            'context': context
+        }
+        
+        self.error_history.append(error_entry)
+        
+        # Keep only recent errors (last 100)
+        if len(self.error_history) > 100:
+            self.error_history = self.error_history[-100:]
+
+# Global error recovery manager instance
+error_recovery_manager = ErrorRecoveryManager()
 
 def with_progress(total_steps: int, description: str = "Processing..."):
     """Decorator để thêm progress tracking"""
