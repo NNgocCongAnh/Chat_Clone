@@ -3,9 +3,8 @@ from supabase import create_client
 import bcrypt
 from ..utils.validators import UserValidator
 
-# Login Page Implementation - Phase 1
-# Author: Nguyễn Ngọc Công Anh
-# Frontend Development & UI/UX Module
+# Enhanced Login Page Implementation - v2.0
+# Author: Nguyễn Ngọc Công Anh - Frontend & UI/UX Enhancement
 from ..utils.error_handler import (
     handle_error, safe_database_operation, show_success_message, 
     show_error_message, error_boundary, DatabaseError, ValidationError
@@ -99,26 +98,357 @@ def register_user(username: str, email: str, password: str, confirm_password: st
     result = safe_database_operation(create_user)
     return result is not None
 
-def main():
-    if "user_id" not in st.session_state:
-        st.session_state.user_id = None
-
-    # --- Header với Study Buddy ---
+def add_login_css():
+    """Enhanced CSS cho login page với modern animations"""
     st.markdown("""
-    <div style="text-align: center; margin-bottom: 2rem;">
-        <h1 style="color: #007bff; font-size: 3rem; margin-bottom: 0.5rem;">
-            💬 Study Buddy
-        </h1>
-        <p style="color: #6c757d; font-size: 1.2rem; margin-bottom: 2rem;">
-            AI Learning Assistant - Trợ lý học tập thông minh
-        </p>
+    <style>
+    /* Enhanced login page styling */
+    .main .block-container {
+        max-width: 800px;
+        padding-top: 2rem;
+    }
+    
+    /* Animated background */
+    .login-background {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(-45deg, #667eea, #764ba2, #f093fb, #f5576c);
+        background-size: 400% 400%;
+        animation: gradientShift 15s ease infinite;
+        z-index: -1;
+    }
+    
+    @keyframes gradientShift {
+        0% { background-position: 0% 50%; }
+        50% { background-position: 100% 50%; }
+        100% { background-position: 0% 50%; }
+    }
+    
+    /* Enhanced login container */
+    .login-container {
+        background: rgba(255, 255, 255, 0.95);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        border-radius: 24px;
+        padding: 3rem 2rem;
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        margin: 2rem auto;
+        animation: slideInUp 0.8s ease-out;
+    }
+    
+    @keyframes slideInUp {
+        from {
+            opacity: 0;
+            transform: translateY(30px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    /* Enhanced hero section */
+    .login-hero {
+        text-align: center;
+        margin-bottom: 3rem;
+        animation: fadeInDown 1s ease-out;
+    }
+    
+    @keyframes fadeInDown {
+        from {
+            opacity: 0;
+            transform: translateY(-20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+    
+    .login-hero h1 {
+        font-size: 3.5rem;
+        margin-bottom: 1rem;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+        animation: pulse 2s ease-in-out infinite alternate;
+    }
+    
+    @keyframes pulse {
+        from { opacity: 0.8; }
+        to { opacity: 1; }
+    }
+    
+    .login-hero p {
+        font-size: 1.3rem;
+        color: #6b7280;
+        margin-bottom: 2rem;
+        opacity: 0;
+        animation: fadeIn 1s ease-out 0.5s forwards;
+    }
+    
+    @keyframes fadeIn {
+        to { opacity: 1; }
+    }
+    
+    /* Enhanced form styling */
+    .stTextInput > div > div > input {
+        border: 2px solid transparent;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        background: rgba(248, 250, 252, 0.8);
+        backdrop-filter: blur(10px);
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    
+    .stTextInput > div > div > input:focus {
+        border-color: #667eea;
+        background: rgba(255, 255, 255, 0.9);
+        box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+        transform: translateY(-2px);
+    }
+    
+    /* Enhanced button styling */
+    .stButton > button {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border: none;
+        border-radius: 12px;
+        color: white;
+        font-weight: 600;
+        padding: 0.75rem 2rem;
+        font-size: 1rem;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+    
+    .stButton > button::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+        transition: left 0.6s;
+    }
+    
+    .stButton > button:hover {
+        transform: translateY(-3px);
+        box-shadow: 0 12px 30px rgba(102, 126, 234, 0.4);
+    }
+    
+    .stButton > button:hover::before {
+        left: 100%;
+    }
+    
+    /* Enhanced tabs */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background: rgba(248, 250, 252, 0.8);
+        backdrop-filter: blur(10px);
+        padding: 0.5rem;
+        border-radius: 16px;
+        border: 1px solid rgba(226, 232, 240, 0.8);
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        background: transparent;
+        border-radius: 12px;
+        border: none;
+        padding: 0.75rem 1.5rem;
+        font-weight: 600;
+        transition: all 0.3s ease;
+        color: #6b7280;
+    }
+    
+    .stTabs [aria-selected="true"] {
+        background: linear-gradient(135deg, #667eea, #764ba2);
+        color: white;
+        box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        transform: translateY(-2px);
+    }
+    
+    /* Floating elements animation */
+    .floating-elements {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        z-index: -1;
+    }
+    
+    .floating-element {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 50%;
+        animation: float 20s infinite linear;
+    }
+    
+    @keyframes float {
+        from {
+            transform: translateY(100vh) rotate(0deg);
+            opacity: 0;
+        }
+        10% {
+            opacity: 1;
+        }
+        90% {
+            opacity: 1;
+        }
+        to {
+            transform: translateY(-100px) rotate(360deg);
+            opacity: 0;
+        }
+    }
+    
+    /* Success and error message enhancements */
+    .stSuccess {
+        background: linear-gradient(135deg, #10b981, #059669);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        animation: slideInRight 0.5s ease-out;
+    }
+    
+    .stError {
+        background: linear-gradient(135deg, #ef4444, #dc2626);
+        color: white;
+        border: none;
+        border-radius: 12px;
+        animation: shake 0.5s ease-out;
+    }
+    
+    @keyframes slideInRight {
+        from {
+            opacity: 0;
+            transform: translateX(20px);
+        }
+        to {
+            opacity: 1;
+            transform: translateX(0);
+        }
+    }
+    
+    @keyframes shake {
+        0%, 100% { transform: translateX(0); }
+        25% { transform: translateX(-5px); }
+        75% { transform: translateX(5px); }
+    }
+    
+    /* Form validation indicators */
+    .validation-success {
+        color: #10b981;
+        animation: bounceIn 0.5s ease-out;
+    }
+    
+    .validation-error {
+        color: #ef4444;
+        animation: shake 0.5s ease-out;
+    }
+    
+    @keyframes bounceIn {
+        0% {
+            opacity: 0;
+            transform: scale(0.3);
+        }
+        50% {
+            opacity: 1;
+            transform: scale(1.05);
+        }
+        70% {
+            transform: scale(0.9);
+        }
+        100% {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def render_animated_background():
+    """Render animated background elements"""
+    st.markdown("""
+    <div class="login-background"></div>
+    <div class="floating-elements">
+        <div class="floating-element" style="left: 10%; animation-delay: 0s;"></div>
+        <div class="floating-element" style="left: 20%; animation-delay: 2s;"></div>
+        <div class="floating-element" style="left: 30%; animation-delay: 4s;"></div>
+        <div class="floating-element" style="left: 40%; animation-delay: 6s;"></div>
+        <div class="floating-element" style="left: 50%; animation-delay: 8s;"></div>
+        <div class="floating-element" style="left: 60%; animation-delay: 10s;"></div>
+        <div class="floating-element" style="left: 70%; animation-delay: 12s;"></div>
+        <div class="floating-element" style="left: 80%; animation-delay: 14s;"></div>
+        <div class="floating-element" style="left: 90%; animation-delay: 16s;"></div>
     </div>
     """, unsafe_allow_html=True)
 
-    # --- Giao diện login ---
-    st.title("🔐 Đăng nhập / Đăng ký")
+def render_enhanced_hero():
+    """Render enhanced hero section"""
+    st.markdown("""
+    <div class="login-hero">
+        <h1>🎓 Study Buddy</h1>
+        <p>✨ AI Learning Assistant - Trợ lý học tập thông minh ✨</p>
+        <div style="display: flex; justify-content: center; gap: 2rem; margin-top: 2rem;">
+            <div style="text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">🤖</div>
+                <small style="color: #6b7280;">AI-Powered</small>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">📚</div>
+                <small style="color: #6b7280;">Smart Learning</small>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem;">💬</div>
+                <small style="color: #6b7280;">Interactive Chat</small>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["Đăng nhập", "Đăng ký"])
+def main():
+    # Enhanced page setup
+    if "user_id" not in st.session_state:
+        st.session_state.user_id = None
+
+    # Add enhanced CSS
+    add_login_css()
+    
+    # Render animated background
+    render_animated_background()
+    
+    # Main container with glassmorphism
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    
+    # Enhanced hero section
+    render_enhanced_hero()
+    
+    # Enhanced title
+    st.markdown("""
+    <div style="text-align: center; margin-bottom: 2rem;">
+        <h2 style="
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin: 0;
+        ">🔐 Đăng nhập / Đăng ký</h2>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Enhanced tabs
+    tab1, tab2 = st.tabs(["🔑 Đăng nhập", "✨ Đăng ký"])
 
     with tab1:
         with st.form("login_form"):
@@ -128,23 +458,59 @@ def main():
             
             if submit_login:
                 if not username or not password:
-                    show_error_message('authentication_required')
+                    st.markdown('<div class="validation-error">❌ Vui lòng nhập đầy đủ thông tin đăng nhập</div>', 
+                               unsafe_allow_html=True)
                     return
                 
-                try:
-                    success, user, error_msg = authenticate_user(username, password)
-                    if success:
-                        show_success_message('login_success')
-                        st.session_state.authenticated = True
-                        st.session_state.user_id = user["id"]
-                        st.rerun()
-                    else:
-                        st.error(f"❌ {error_msg}")
-                except (ValidationError, DatabaseError) as e:
-                    # Error đã được handle trong decorator
-                    pass
-                except Exception as e:
-                    handle_error(e, "Login process", show_user=True)
+                # Enhanced loading animation
+                with st.spinner("🔍 Đang xác thực..."):
+                    try:
+                        success, user, error_msg = authenticate_user(username, password)
+                        if success:
+                            st.markdown("""
+                            <div style="
+                                background: linear-gradient(135deg, #10b981, #059669);
+                                color: white;
+                                padding: 1rem;
+                                border-radius: 12px;
+                                text-align: center;
+                                margin: 1rem 0;
+                                animation: slideInRight 0.5s ease-out;
+                            ">
+                                ✅ Đăng nhập thành công! Chào mừng bạn quay lại! 🎉
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            st.session_state.authenticated = True
+                            st.session_state.user_id = user["id"]
+                            
+                            # Celebration effect
+                            st.balloons()
+                            
+                            # Delay để user thấy success message
+                            import time
+                            time.sleep(1)
+                            
+                            st.rerun()
+                        else:
+                            st.markdown(f"""
+                            <div style="
+                                background: linear-gradient(135deg, #ef4444, #dc2626);
+                                color: white;
+                                padding: 1rem;
+                                border-radius: 12px;
+                                text-align: center;
+                                margin: 1rem 0;
+                                animation: shake 0.5s ease-out;
+                            ">
+                                ❌ {error_msg}
+                            </div>
+                            """, unsafe_allow_html=True)
+                    except (ValidationError, DatabaseError) as e:
+                        # Error đã được handle trong decorator
+                        pass
+                    except Exception as e:
+                        handle_error(e, "Login process", show_user=True)
 
     with tab2:
         st.markdown("### Tạo tài khoản mới")
@@ -178,50 +544,93 @@ def main():
                     help="Phải trùng khớp với mật khẩu ở trên"
                 )
             
-            # Real-time validation feedback
+            # Enhanced real-time validation feedback
             if username:
                 is_valid_username, username_error = UserValidator.validate_username(username)
                 if not is_valid_username:
-                    st.error(f"❌ Username: {username_error}")
+                    st.markdown(f'<div class="validation-error">❌ Username: {username_error}</div>', 
+                               unsafe_allow_html=True)
                 else:
-                    st.success("✅ Username hợp lệ")
+                    st.markdown('<div class="validation-success">✅ Username hợp lệ</div>', 
+                               unsafe_allow_html=True)
             
             if email_reg:
                 is_valid_email, email_error = UserValidator.validate_email(email_reg)
                 if not is_valid_email:
-                    st.error(f"❌ Email: {email_error}")
+                    st.markdown(f'<div class="validation-error">❌ Email: {email_error}</div>', 
+                               unsafe_allow_html=True)
                 else:
-                    st.success("✅ Email hợp lệ")
+                    st.markdown('<div class="validation-success">✅ Email hợp lệ</div>', 
+                               unsafe_allow_html=True)
             
             if password_reg:
                 is_valid_password, password_error = UserValidator.validate_password(password_reg)
                 if not is_valid_password:
-                    st.error(f"❌ Mật khẩu: {password_error}")
+                    st.markdown(f'<div class="validation-error">❌ Mật khẩu: {password_error}</div>', 
+                               unsafe_allow_html=True)
                 else:
-                    st.success("✅ Mật khẩu hợp lệ")
+                    st.markdown('<div class="validation-success">✅ Mật khẩu hợp lệ</div>', 
+                               unsafe_allow_html=True)
             
             if password_reg and confirm_password:
                 if password_reg != confirm_password:
-                    st.error("❌ Mật khẩu xác nhận không khớp")
+                    st.markdown('<div class="validation-error">❌ Mật khẩu xác nhận không khớp</div>', 
+                               unsafe_allow_html=True)
                 else:
-                    st.success("✅ Mật khẩu xác nhận khớp")
+                    st.markdown('<div class="validation-success">✅ Mật khẩu xác nhận khớp</div>', 
+                               unsafe_allow_html=True)
             
             st.markdown("---")
             submit_register = st.form_submit_button("✨ Tạo tài khoản", use_container_width=True)
             
             if submit_register:
                 if not all([username, email_reg, password_reg, confirm_password]):
-                    st.error("❌ Vui lòng điền đầy đủ tất cả thông tin bắt buộc (*)")
+                    st.markdown("""
+                    <div style="
+                        background: linear-gradient(135deg, #ef4444, #dc2626);
+                        color: white;
+                        padding: 1rem;
+                        border-radius: 12px;
+                        text-align: center;
+                        margin: 1rem 0;
+                        animation: shake 0.5s ease-out;
+                    ">
+                        ❌ Vui lòng điền đầy đủ tất cả thông tin bắt buộc (*)
+                    </div>
+                    """, unsafe_allow_html=True)
                     return
                 
-                try:
-                    success = register_user(username, email_reg, password_reg, confirm_password)
-                    if success:
-                        show_success_message('account_created')
-                        st.info("👆 Bây giờ bạn có thể đăng nhập bằng tài khoản vừa tạo!")
-                        st.balloons()  # Celebration effect
-                except (ValidationError, DatabaseError) as e:
-                    # Error đã được handle trong decorator
-                    pass
-                except Exception as e:
-                    handle_error(e, "Registration process", show_user=True)
+                # Enhanced loading for registration
+                with st.spinner("✨ Đang tạo tài khoản..."):
+                    try:
+                        success = register_user(username, email_reg, password_reg, confirm_password)
+                        if success:
+                            st.markdown("""
+                            <div style="
+                                background: linear-gradient(135deg, #10b981, #059669);
+                                color: white;
+                                padding: 2rem;
+                                border-radius: 16px;
+                                text-align: center;
+                                margin: 1rem 0;
+                                animation: slideInRight 0.5s ease-out;
+                            ">
+                                <h3 style="margin: 0 0 1rem 0; color: white;">🎉 Tài khoản đã được tạo thành công!</h3>
+                                <p style="margin: 0; color: rgba(255,255,255,0.9);">
+                                    👆 Bây giờ bạn có thể đăng nhập bằng tài khoản vừa tạo!
+                                </p>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Enhanced celebration effect
+                            st.balloons()
+                            st.snow()  # Additional effect
+                            
+                    except (ValidationError, DatabaseError) as e:
+                        # Error đã được handle trong decorator
+                        pass
+                    except Exception as e:
+                        handle_error(e, "Registration process", show_user=True)
+    
+    # Close container
+    st.markdown('</div>', unsafe_allow_html=True)
