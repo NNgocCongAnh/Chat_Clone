@@ -32,17 +32,17 @@ class ChatHandler:
             return self._generate_demo_response(user_input, document_context)
         
         def _call_llm():
-            # Chuẩn bị messages cho OpenAI
+            # Chuẩn bị messages cho OpenAI với enhanced context management
             if is_document_qa and document_context:
                 # Specialized system prompt cho document Q&A
                 system_content = self._create_document_qa_prompt(document_context)
-                max_tokens = 500  # Focused answers
-                temperature = 0.2  # More deterministic
+                max_tokens = 600  # Tăng để có câu trả lời chi tiết hơn
+                temperature = 0.15  # Giảm để tăng độ chính xác
             else:
-                # Standard chat system prompt
-                system_content = self._create_system_prompt(document_context)
-                max_tokens = 1000
-                temperature = 0.7
+                # Standard chat system prompt với context intelligence
+                system_content = self._create_enhanced_system_prompt(document_context, user_input)
+                max_tokens = 1200  # Tăng để có phản hồi phong phú hơn
+                temperature = 0.6  # Cân bằng giữa creativity và consistency
             
             messages = [
                 {
@@ -51,26 +51,30 @@ class ChatHandler:
                 }
             ]
             
-            # Thêm lịch sử chat (giới hạn 10 tin nhắn gần nhất)
-            recent_history = chat_history[-10:] if len(chat_history) > 10 else chat_history
+            # Enhanced chat history management với intelligent filtering
+            recent_history = self._filter_relevant_history(chat_history, user_input, max_messages=12)
             for msg in recent_history:
                 messages.append({
                     "role": msg["role"],
                     "content": msg["content"]
                 })
             
-            # Thêm tin nhắn hiện tại
+            # Thêm tin nhắn hiện tại với context enhancement
+            enhanced_input = self._enhance_user_input(user_input, document_context)
             messages.append({
                 "role": "user",
-                "content": user_input
+                "content": enhanced_input
             })
             
-            # Gọi Local LLM API
+            # Gọi Local LLM API với optimized parameters
             response = self.client.chat.completions.create(
                 model="local-model",
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                top_p=0.9,  # Thêm top_p để kiểm soát diversity
+                frequency_penalty=0.1,  # Giảm repetition
+                presence_penalty=0.1   # Encourage new topics
             )
             
             return response.choices[0].message.content
@@ -78,34 +82,58 @@ class ChatHandler:
         # Sử dụng safe_execute_with_retry để xử lý lỗi
         success, result, error_message = safe_execute_with_retry(
             _call_llm,
-            max_retries=1,  # Chỉ thử 1 lần vì Local LLM
-            delay=0.5,
-            context="Local LLM Chat",
-            show_user=False  # Không hiển thị lỗi raw
+            max_retries=2,  # Tăng lên 2 lần thử
+            delay=1.0,      # Tăng delay để model có thời gian
+            context="Enhanced Local LLM Chat",
+            show_user=False
         )
         
         if success:
-            return result
+            # Post-process response để cải thiện chất lượng
+            return self._post_process_response(result, user_input, is_document_qa)
         else:
-            # Xử lý các loại lỗi cụ thể
+            # Xử lý các loại lỗi cụ thể với enhanced fallback
             return self._handle_llm_error(error_message, user_input, document_context)
     
-    def _create_system_prompt(self, document_context):
-        """Tạo system prompt cho chat thông thường"""
-        base_prompt = """Bạn là một AI assistant thông minh và hữu ích. Hãy trả lời các câu hỏi một cách chi tiết và chính xác. Sử dụng tiếng Việt để trả lời."""
+    def _create_enhanced_system_prompt(self, document_context, user_input):
+        """Tạo system prompt thông minh cho chat với context awareness"""
+        base_prompt = """Bạn là Study Buddy - một AI assistant thông minh chuyên hỗ trợ học tập. 
+
+KHẢ NĂNG CỐT LÕI:
+- 📚 Phân tích và giải thích tài liệu học tập
+- 🤔 Trả lời câu hỏi chi tiết và chính xác  
+- 💡 Đưa ra gợi ý học tập thông minh
+- 🎯 Tương tác tự nhiên bằng tiếng Việt
+
+NGUYÊN TẮC HOẠT ĐỘNG:
+✅ Trả lời chính xác, có căn cứ
+✅ Giải thích dễ hiểu, logic rõ ràng
+✅ Đưa ra ví dụ cụ thể khi cần
+✅ Khuyến khích tư duy phản biện
+❌ Không bịa đặt thông tin sai lệch
+❌ Không trả lời những câu hỏi không phù hợp"""
         
         if document_context:
+            # Intelligent context inclusion dựa trên user input
+            context_snippet = self._extract_relevant_context(document_context, user_input)
             base_prompt += f"""
-            
-THÔNG TIN TÀI LIỆU:
-Người dùng đã upload các tài liệu sau. Hãy sử dụng thông tin này để trả lời câu hỏi khi phù hợp:
 
-{document_context[:3000]}...
+📄 NGỮ CẢNH TÀI LIỆU:
+Người dùng đã upload tài liệu. Dưới đây là phần nội dung liên quan:
 
-Khi trả lời dựa trên tài liệu, hãy ghi rõ bạn đang tham khảo từ tài liệu đã upload.
-"""
+{context_snippet}
+
+HƯỚNG DẪN SỬ DỤNG TÀI LIỆU:
+- Ưu tiên thông tin từ tài liệu khi trả lời
+- Trích dẫn cụ thể khi cần thiết
+- Ghi rõ nguồn: "Theo tài liệu bạn upload..."
+- Kết hợp kiến thức chung khi phù hợp"""
         
         return base_prompt
+
+    def _create_system_prompt(self, document_context):
+        """Backward compatibility method"""
+        return self._create_enhanced_system_prompt(document_context, "")
     
     def _create_document_qa_prompt(self, document_context):
         """Tạo system prompt chuyên biệt cho document Q&A"""
@@ -260,3 +288,97 @@ Câu hỏi của bạn: "{user_input}"
 
 ⏰ {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}
 🔧 Lỗi: {str(error_message)[:100]}..."""
+
+    def _filter_relevant_history(self, chat_history, user_input, max_messages=12):
+        """Lọc lịch sử chat có liên quan đến câu hỏi hiện tại"""
+        if not chat_history or len(chat_history) <= max_messages:
+            return chat_history
+        
+        # Lấy keywords từ user input
+        keywords = user_input.lower().split()
+        relevant_messages = []
+        
+        # Ưu tiên tin nhắn gần đây
+        recent_messages = chat_history[-max_messages//2:]
+        relevant_messages.extend(recent_messages)
+        
+        # Tìm tin nhắn có liên quan từ lịch sử cũ hơn
+        older_messages = chat_history[:-max_messages//2]
+        for msg in reversed(older_messages):
+            if len(relevant_messages) >= max_messages:
+                break
+            
+            # Kiểm tra keywords trong nội dung
+            msg_content = msg.get("content", "").lower()
+            if any(keyword in msg_content for keyword in keywords if len(keyword) > 3):
+                relevant_messages.insert(0, msg)
+        
+        return relevant_messages[-max_messages:]
+    
+    def _extract_relevant_context(self, document_context, user_input, max_length=2000):
+        """Trích xuất phần context liên quan đến câu hỏi"""
+        if not document_context or not user_input:
+            return document_context[:max_length]
+        
+        # Tìm keywords trong user input
+        keywords = [word.lower() for word in user_input.split() if len(word) > 3]
+        
+        # Chia document thành chunks
+        chunks = []
+        chunk_size = 500
+        for i in range(0, len(document_context), chunk_size):
+            chunk = document_context[i:i+chunk_size]
+            chunks.append(chunk)
+        
+        # Tính score cho mỗi chunk
+        chunk_scores = []
+        for chunk in chunks:
+            score = 0
+            chunk_lower = chunk.lower()
+            for keyword in keywords:
+                score += chunk_lower.count(keyword)
+            chunk_scores.append((chunk, score))
+        
+        # Sắp xếp và lấy chunks có score cao
+        chunk_scores.sort(key=lambda x: x[1], reverse=True)
+        
+        relevant_text = ""
+        current_length = 0
+        
+        for chunk, score in chunk_scores:
+            if current_length + len(chunk) <= max_length:
+                relevant_text += chunk + "\n"
+                current_length += len(chunk)
+            else:
+                break
+        
+        return relevant_text.strip() or document_context[:max_length]
+    
+    def _enhance_user_input(self, user_input, document_context):
+        """Cải thiện user input với context hints"""
+        if not document_context:
+            return user_input
+        
+        # Thêm context hint nếu user input quá ngắn
+        if len(user_input.split()) <= 3:
+            return f"{user_input}\n\n(Gợi ý: Tham khảo tài liệu đã upload để trả lời chi tiết hơn)"
+        
+        return user_input
+    
+    def _post_process_response(self, response, user_input, is_document_qa):
+        """Xử lý và cải thiện phản hồi từ LLM"""
+        if not response:
+            return "Xin lỗi, tôi không thể tạo phản hồi phù hợp. Bạn có thể thử lại với câu hỏi khác không?"
+        
+        # Loại bỏ các ký tự không mong muốn
+        response = response.strip()
+        
+        # Thêm emoji và formatting cho document Q&A
+        if is_document_qa and not response.startswith(("📄", "🤖", "✅", "❌", "⚠️")):
+            response = f"📄 **Dựa trên tài liệu:** {response}"
+        
+        # Đảm bảo phản hồi không quá dài
+        if len(response) > 2000:
+            response = response[:1900] + "\n\n...(Phản hồi đã được rút gọn)"
+        
+        return response
