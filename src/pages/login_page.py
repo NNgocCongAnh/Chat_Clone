@@ -2,6 +2,10 @@ import streamlit as st
 from supabase import create_client
 import bcrypt
 from ..utils.validators import UserValidator
+
+# Login Page Implementation - Phase 1
+# Author: Nguyễn Ngọc Công Anh
+# Frontend Development & UI/UX Module
 from ..utils.error_handler import (
     handle_error, safe_database_operation, show_success_message, 
     show_error_message, error_boundary, DatabaseError, ValidationError
