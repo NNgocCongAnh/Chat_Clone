@@ -8,6 +8,10 @@ import os
 from typing import Dict, Optional, List, Tuple
 import fitz  # PyMuPDF
 from PIL import Image
+
+# AI Integration Setup - Phase 1
+# Author: Trần Long Khánh <22010449@st.phenikaa-uni.edu.vn>
+# Backend Logic & AI Integration Module
 from .validators import FileValidator, DocumentValidator
 from .error_handler import (
     handle_error, error_boundary, FileProcessingError, 
