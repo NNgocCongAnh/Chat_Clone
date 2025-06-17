@@ -65,7 +65,13 @@ ERROR_MESSAGES = {
     'network_error': 'Lỗi kết nối mạng. Vui lòng kiểm tra internet.',
     'timeout_error': 'Thao tác timeout. Vui lòng thử lại.',
     'permission_denied': 'Không có quyền thực hiện thao tác này.',
-    'resource_not_found': 'Không tìm thấy tài nguyên được yêu cầu.'
+    'resource_not_found': 'Không tìm thấy tài nguyên được yêu cầu.',
+    'llm_model_not_loaded': 'Local LLM chưa load model. Vui lòng khởi động LM Studio và load model.',
+    'llm_connection_timeout': 'Kết nối Local LLM timeout. Kiểm tra LM Studio server.',
+    'mistral_api_limit': 'Mistral API đã vượt giới hạn. Vui lòng thử lại sau.',
+    'mistral_api_auth': 'Mistral API key không hợp lệ. Kiểm tra cấu hình.',
+    'api_rate_limit': 'API đã vượt giới hạn rate limit. Vui lòng chờ và thử lại.',
+    'service_unavailable': 'Dịch vụ tạm thời không khả dụng. Vui lòng thử lại sau.'
 }
 
 # Success messages

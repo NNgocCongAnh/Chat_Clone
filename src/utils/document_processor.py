@@ -418,8 +418,9 @@ class DocumentProcessor:
             return f"Không thể tóm tắt tài liệu. Lỗi: {str(e)}"
     
     def _summarize_chunk_with_openai(self, text, max_words=150):
-        """Tóm tắt một chunk text bằng Local LLM"""
-        try:
+        """Tóm tắt một chunk text bằng Local LLM với improved error handling"""
+        
+        def _call_summarize_llm():
             prompt = f"""Hãy tóm tắt nội dung sau bằng tiếng Việt, khoảng {max_words} từ. Tập trung vào những ý chính và thông tin quan trọng nhất:
 
 {text}
@@ -437,10 +438,21 @@ Tóm tắt ngắn gọn, dễ hiểu:"""
             )
             
             return response.choices[0].message.content.strip()
-            
-        except Exception as e:
-            st.error(f"Lỗi khi gọi Local LLM cho tóm tắt: {str(e)}")
-            return None
+        
+        # Sử dụng safe_execute_with_retry
+        success, result, error_message = safe_execute_with_retry(
+            _call_summarize_llm,
+            max_retries=1,
+            delay=0.5,
+            context="Local LLM Summarization",
+            show_user=False
+        )
+        
+        if success:
+            return result
+        else:
+            # Fallback summary
+            return f"📄 **Tóm tắt tự động:** Tài liệu chứa {len(text)} ký tự. Nội dung bao gồm các thông tin quan trọng cần được phân tích chi tiết. (Local LLM không khả dụng - {str(error_message)[:50]}...)"
     
     # Để tương thích backward, tạo alias
     def summarize_text(self, text, max_length=200, min_length=50):
@@ -449,16 +461,22 @@ Tóm tắt ngắn gọn, dễ hiểu:"""
         return self.summarize_text_with_openai(text, max_words)
     
     def generate_questions(self, text):
-        """Tạo câu hỏi gợi ý dựa trên nội dung tài liệu"""
-        if not self.mistral_client:
-            # Fallback questions nếu không có Mistral API
+        """Tạo câu hỏi gợi ý dựa trên nội dung tài liệu với improved error handling"""
+        
+        def _get_fallback_questions():
+            """Trả về câu hỏi mặc định"""
             return [
                 "Nội dung chính của tài liệu là gì?",
                 "Các điểm quan trọng được đề cập?",
-                "Kết luận chính từ tài liệu này?"
+                "Kết luận chính từ tài liệu này?",
+                "Thông tin nào đáng chú ý nhất?"
             ]
         
-        try:
+        # Nếu không có Mistral client, trả về câu hỏi mặc định
+        if not self.mistral_client:
+            return _get_fallback_questions()
+        
+        def _call_mistral_questions():
             # Lấy đoạn văn đại diện để tạo câu hỏi
             chunks = self.chunk_text(text, chunk_size=500)
             sample_text = chunks[0] if chunks else text[:500]
@@ -483,21 +501,104 @@ Yêu cầu:
             questions_text = response.choices[0].message.content
             questions = [q.strip() for q in questions_text.split('\n') if q.strip() and '?' in q]
             
-            # Đảm bảo có ít nhất 3 câu hỏi
-            if len(questions) < 3:
-                questions.extend([
-                    "Thông tin chính trong tài liệu?",
-                    "Các điểm quan trọng được nhấn mạnh?",
-                    "Kết luận từ nội dung này?"
-                ])
+            return questions[:4] if questions else []
+        
+        # Sử dụng safe_execute_with_retry
+        success, result, error_message = safe_execute_with_retry(
+            _call_mistral_questions,
+            max_retries=1,
+            delay=0.5,
+            context="Mistral Question Generation",
+            show_user=False
+        )
+        
+        if success and result and len(result) >= 3:
+            return result
+        else:
+            # Xử lý lỗi cụ thể và trả về câu hỏi phù hợp
+            return self._handle_mistral_question_error(error_message, text)
+    
+    def _handle_mistral_question_error(self, error_message, text):
+        """Xử lý lỗi Mistral API khi tạo câu hỏi và tạo câu hỏi thông minh hơn"""
+        
+        # Lỗi 429 - Rate limit exceeded
+        if "429" in str(error_message) or "capacity exceeded" in str(error_message).lower():
+            # Tạo câu hỏi thông minh dựa trên nội dung
+            return self._generate_smart_questions_from_content(text)
+        
+        # Lỗi 401/403 - Authentication
+        elif "401" in str(error_message) or "403" in str(error_message):
+            return [
+                "Nội dung chính của tài liệu là gì?",
+                "Các thông tin quan trọng được đề cập?",
+                "Điểm nổi bật trong tài liệu?",
+                "Kết luận chính từ nội dung này?"
+            ]
+        
+        # Lỗi kết nối
+        elif "connection" in str(error_message).lower():
+            return self._generate_smart_questions_from_content(text)
+        
+        # Lỗi khác
+        else:
+            return self._generate_smart_questions_from_content(text)
+    
+    def _generate_smart_questions_from_content(self, text):
+        """Tạo câu hỏi thông minh dựa trên phân tích nội dung"""
+        try:
+            # Lấy một phần nhỏ của text để phân tích
+            sample = text[:800] if len(text) > 800 else text
+            sample_lower = sample.lower()
             
-            return questions[:4]  # Giới hạn 4 câu hỏi
+            questions = []
+            
+            # Phân tích keywords để tạo câu hỏi phù hợp
+            if any(word in sample_lower for word in ['định nghĩa', 'khái niệm', 'là gì']):
+                questions.append("Các khái niệm chính được định nghĩa như thế nào?")
+            
+            if any(word in sample_lower for word in ['phương pháp', 'cách thức', 'quy trình']):
+                questions.append("Phương pháp nào được đề cập trong tài liệu?")
+            
+            if any(word in sample_lower for word in ['kết quả', 'thành quả', 'hiệu quả']):
+                questions.append("Kết quả chính đạt được là gì?")
+            
+            if any(word in sample_lower for word in ['vấn đề', 'thách thức', 'khó khăn']):
+                questions.append("Những vấn đề nào được nêu ra?")
+            
+            if any(word in sample_lower for word in ['giải pháp', 'đề xuất', 'khuyến nghị']):
+                questions.append("Giải pháp nào được đề xuất?")
+            
+            if any(word in sample_lower for word in ['phân tích', 'nghiên cứu', 'khảo sát']):
+                questions.append("Phân tích chính trong tài liệu là gì?")
+            
+            # Đảm bảo có ít nhất 4 câu hỏi
+            default_questions = [
+                "Nội dung chính của tài liệu là gì?",
+                "Các điểm quan trọng được đề cập?",
+                "Thông tin nào đáng chú ý nhất?",
+                "Kết luận chính từ tài liệu này?"
+            ]
+            
+            # Kết hợp và loại bỏ trùng lặp
+            all_questions = questions + default_questions
+            unique_questions = []
+            seen = set()
+            
+            for q in all_questions:
+                if q not in seen:
+                    unique_questions.append(q)
+                    seen.add(q)
+                if len(unique_questions) >= 4:
+                    break
+            
+            return unique_questions[:4]
             
         except Exception as e:
-            st.error(f"Lỗi khi tạo câu hỏi: {str(e)}")
+            # Fallback cuối cùng
             return [
                 "Nội dung chính của tài liệu là gì?",
                 "Các điểm quan trọng được đề cập?",
+                "Thông tin nào đáng chú ý nhất?",
                 "Kết luận chính từ tài liệu này?"
             ]
     

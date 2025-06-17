@@ -3,6 +3,7 @@ import openai
 from datetime import datetime
 import os
 from dotenv import load_dotenv
+from .error_handler import handle_error, LLMConnectionError, safe_execute_with_retry
 
 # Load environment variables
 load_dotenv()
@@ -24,13 +25,13 @@ class ChatHandler:
             st.warning(f"⚠️ ChatHandler không thể kết nối Local LLM: {str(e)}. Ứng dụng sẽ chạy ở chế độ demo.")
     
     def generate_response(self, user_input, chat_history, document_context="", is_document_qa=False):
-        """Tạo phản hồi từ AI với enhanced document Q&A support"""
+        """Tạo phản hồi từ AI với enhanced document Q&A support và improved error handling"""
         
         # Nếu không có API key, trả về phản hồi demo
         if not self.api_key:
             return self._generate_demo_response(user_input, document_context)
         
-        try:
+        def _call_llm():
             # Chuẩn bị messages cho OpenAI
             if is_document_qa and document_context:
                 # Specialized system prompt cho document Q&A
@@ -73,10 +74,21 @@ class ChatHandler:
             )
             
             return response.choices[0].message.content
-            
-        except Exception as e:
-            st.error(f"Lỗi khi gọi OpenAI API: {str(e)}")
-            return "Xin lỗi, tôi đang gặp sự cố kỹ thuật. Vui lòng thử lại sau."
+        
+        # Sử dụng safe_execute_with_retry để xử lý lỗi
+        success, result, error_message = safe_execute_with_retry(
+            _call_llm,
+            max_retries=1,  # Chỉ thử 1 lần vì Local LLM
+            delay=0.5,
+            context="Local LLM Chat",
+            show_user=False  # Không hiển thị lỗi raw
+        )
+        
+        if success:
+            return result
+        else:
+            # Xử lý các loại lỗi cụ thể
+            return self._handle_llm_error(error_message, user_input, document_context)
     
     def _create_system_prompt(self, document_context):
         """Tạo system prompt cho chat thông thường"""
@@ -164,3 +176,87 @@ Xin chào! Tôi là Study Buddy với Local LLM support. Hiện tại đang ch�
 - ✅ Demo ổn định
 
 Thời gian: {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"""
+    
+    def _handle_llm_error(self, error_message, user_input, document_context):
+        """Xử lý các loại lỗi LLM cụ thể và trả về phản hồi thân thiện"""
+        
+        # Xử lý lỗi 404 - No models loaded
+        if "404" in str(error_message) and "model_not_found" in str(error_message):
+            return f"""⚠️ **Local LLM chưa sẵn sàng**
+
+Câu hỏi của bạn: "{user_input}"
+
+**🔧 Nguyên nhân:** LM Studio chưa load model nào.
+
+**💡 Cách khắc phục:**
+1. 🚀 Mở LM Studio
+2. 📁 Tải và load một model (ví dụ: Llama, Mistral, Phi)
+3. ▶️ Start local server trên port 1234
+4. 🔄 Refresh lại trang này
+
+**📋 Hướng dẫn chi tiết:**
+- Download LM Studio: https://lmstudio.ai
+- Chọn tab "Chat" → Load model → Start server
+- Đảm bảo server chạy trên `http://localhost:1234`
+
+**🎯 Trạng thái hiện tại:** Chế độ chờ Local LLM
+⏰ {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"""
+
+        # Xử lý lỗi connection
+        elif "connection" in str(error_message).lower() or "connect" in str(error_message).lower():
+            return f"""🔌 **Lỗi kết nối Local LLM**
+
+Câu hỏi của bạn: "{user_input}"
+
+**🔧 Nguyên nhân:** Không thể kết nối đến LM Studio server.
+
+**💡 Cách khắc phục:**
+1. ✅ Kiểm tra LM Studio đã chạy chưa
+2. 🌐 Đảm bảo server trên port 1234
+3. 🔒 Tắt firewall/antivirus tạm thời
+4. 🔄 Restart LM Studio và ứng dụng này
+
+**📊 Thông tin kỹ thuật:**
+- URL: {self.local_llm_url}
+- Trạng thái: Mất kết nối
+
+⏰ {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"""
+
+        # Xử lý lỗi timeout
+        elif "timeout" in str(error_message).lower():
+            return f"""⏱️ **Local LLM phản hồi chậm**
+
+Câu hỏi của bạn: "{user_input}"
+
+**🔧 Nguyên nhân:** Model xử lý quá lâu hoặc server quá tải.
+
+**💡 Gợi ý:**
+1. 🔄 Thử lại với câu hỏi ngắn hơn
+2. ⚡ Chọn model nhỏ hơn trong LM Studio
+3. 🖥️ Đóng các ứng dụng khác để giải phóng RAM
+4. ⏰ Chờ một chút rồi thử lại
+
+**📊 Model hiện tại có thể quá lớn cho máy này**
+
+⏰ {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}"""
+        
+        # Lỗi general fallback
+        else:
+            return f"""🤖 **Tạm thời không thể phản hồi**
+
+Câu hỏi của bạn: "{user_input}"
+
+**🔧 Đang gặp sự cố kỹ thuật với Local LLM**
+
+**💡 Có thể thử:**
+1. 🔄 Thử lại sau vài giây
+2. 🚀 Restart LM Studio
+3. 📱 Kiểm tra model đã load đúng chưa
+4. 💻 Restart ứng dụng này
+
+**🎯 Chế độ dự phòng:** Demo mode
+- Ứng dụng vẫn hoạt động bình thường
+- Local LLM sẽ tự phục hồi khi sẵn sàng
+
+⏰ {datetime.now().strftime('%H:%M:%S %d/%m/%Y')}
+🔧 Lỗi: {str(error_message)[:100]}..."""

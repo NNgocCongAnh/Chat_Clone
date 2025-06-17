@@ -1,6 +1,6 @@
 import streamlit as st
-from pages import login_page
-from pages import home_page
+from src.pages import login_page
+from src.pages import home_page
 
 # Khởi tạo biến session
 if "authenticated" not in st.session_state:
