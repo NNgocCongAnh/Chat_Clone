@@ -5,9 +5,19 @@ import base64
 from mistralai import Mistral
 import openai
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, List, Tuple
 import fitz  # PyMuPDF
 from PIL import Image
+from .validators import FileValidator, DocumentValidator
+from .error_handler import (
+    handle_error, error_boundary, FileProcessingError, 
+    LLMConnectionError, show_warning_message, ProgressTracker,
+    with_progress, safe_execute_with_retry
+)
+from ..config.constants import (
+    MAX_DOCUMENT_CHARS, DEFAULT_PDF_DPI, MAX_PDF_DPI, MIN_PDF_DPI,
+    WARNING_MESSAGES, ERROR_MESSAGES
+)
 
 class DocumentProcessor:
     def __init__(self):
@@ -39,24 +49,103 @@ class DocumentProcessor:
         
         self.embeddings_cache = {}
     
-    def process_document(self, uploaded_file):
-        """Xử lý và trích xuất text từ tài liệu đã upload"""
-        try:
-            file_extension = uploaded_file.name.split('.')[-1].lower()
+    @error_boundary("Document processing", show_user=True)
+    def process_document(self, uploaded_file) -> Optional[str]:
+        """
+        Xử lý và trích xuất text từ tài liệu đã upload với validation và error handling
+        
+        Args:
+            uploaded_file: Streamlit UploadedFile object
             
-            if file_extension == 'pdf':
-                return self.extract_pdf_content(uploaded_file)
-            elif file_extension == 'docx':
-                return self.extract_docx_content(uploaded_file)
-            elif file_extension in ['txt', 'md']:
-                return self.extract_text_content(uploaded_file)
-            else:
-                st.error(f"Định dạng file {file_extension} không được hỗ trợ")
-                return None
+        Returns:
+            Extracted text content hoặc None nếu lỗi
+        """
+        # Validate file trước khi xử lý
+        is_valid, error_msg = FileValidator.validate_file(uploaded_file)
+        if not is_valid:
+            raise FileProcessingError(error_msg, "file_validation_failed")
+        
+        # Check file size warning
+        if uploaded_file.size > 50 * 1024 * 1024:  # 50MB
+            show_warning_message('large_file')
+        
+        file_extension = FileValidator.get_file_extension(uploaded_file.name)
+        if not file_extension:
+            raise FileProcessingError("Không thể xác định định dạng file", "unknown_format")
+        
+        # Progress tracking cho các loại file khác nhau
+        if file_extension == 'pdf':
+            return self._process_pdf_with_progress(uploaded_file)
+        elif file_extension == 'docx':
+            return self._process_docx_safe(uploaded_file)
+        elif file_extension in ['txt', 'md']:
+            return self._process_text_safe(uploaded_file)
+        else:
+            raise FileProcessingError(
+                f"Định dạng file {file_extension} không được hỗ trợ", 
+                "unsupported_format"
+            )
+    
+    @with_progress(3, "Xử lý file PDF")
+    def _process_pdf_with_progress(self, uploaded_file, progress_tracker=None) -> Optional[str]:
+        """Xử lý PDF với progress tracking"""
+        if progress_tracker:
+            progress_tracker.update("Kiểm tra file PDF")
+        
+        # Check PDF page count first
+        page_count = self.get_pdf_page_count_with_pymupdf(uploaded_file)
+        if page_count > 50:
+            show_warning_message('many_pages')
+        
+        if progress_tracker:
+            progress_tracker.update("Thực hiện OCR")
+        
+        content = self.extract_pdf_content(uploaded_file)
+        
+        if progress_tracker:
+            progress_tracker.update("Kiểm tra kết quả")
+        
+        if content:
+            # Validate content length
+            is_valid_content, content_error = DocumentValidator.validate_document_content(content)
+            if not is_valid_content:
+                raise FileProcessingError(content_error, "content_validation_failed")
+        
+        return content
+    
+    @error_boundary("DOCX processing", show_user=True)
+    def _process_docx_safe(self, uploaded_file) -> Optional[str]:
+        """Xử lý DOCX với error handling"""
+        try:
+            with st.spinner("Đang xử lý file DOCX..."):
+                content = self.extract_docx_content(uploaded_file)
                 
+                if content:
+                    # Validate content
+                    is_valid, error_msg = DocumentValidator.validate_document_content(content)
+                    if not is_valid:
+                        raise FileProcessingError(error_msg, "content_validation_failed")
+                
+                return content
         except Exception as e:
-            st.error(f"Lỗi khi xử lý tài liệu: {str(e)}")
-            return None
+            raise FileProcessingError(f"Lỗi xử lý DOCX: {str(e)}", "docx_processing_failed")
+    
+    @error_boundary("Text processing", show_user=True)
+    def _process_text_safe(self, uploaded_file) -> Optional[str]:
+        """Xử lý text file với error handling"""
+        try:
+            with st.spinner("Đang đọc file text..."):
+                content = self.extract_text_content(uploaded_file)
+                
+                if content:
+                    # Validate content
+                    is_valid, error_msg = DocumentValidator.validate_document_content(content)
+                    if not is_valid:
+                        raise FileProcessingError(error_msg, "content_validation_failed")
+                
+                return content
+        except Exception as e:
+            raise FileProcessingError(f"Lỗi xử lý text file: {str(e)}", "text_processing_failed")
     
     def extract_pdf_content(self, uploaded_file):
         """Trích xuất text từ file PDF sử dụng Mistral OCR"""
