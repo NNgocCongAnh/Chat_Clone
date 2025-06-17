@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 from datetime import datetime, timezone
+from dotenv import load_dotenv
 from ..utils.document_processor import DocumentProcessor
 from ..utils.chat_handler import ChatHandler
 from ..utils.chat_persistence import ChatPersistence
@@ -11,6 +12,9 @@ from ..utils.ui_components import (
     render_pdf_page_image_viewer, render_page_summary_from_ocr
 )
 from supabase import create_client
+
+# Load environment variables
+load_dotenv()
 
 # Cấu hình trang
 st.set_page_config(
@@ -29,9 +33,29 @@ def load_css():
 def init_session_state():
     # Khởi tạo Supabase connection
     if "supabase" not in st.session_state:
-        SUPABASE_URL = "https://skbclvpercuqtyevuxqr.supabase.co"
-        SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNrYmNsdnBlcmN1cXR5ZXZ1eHFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDk4NzMwNDIsImV4cCI6MjA2NTQ0OTA0Mn0.DTBbMCVSHZKjXkEzLDjmbYgYGR42NEYozcr3BvNN7x0"
-        st.session_state.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+        # Đọc credentials từ environment variables
+        SUPABASE_URL = os.getenv("SUPABASE_URL")
+        SUPABASE_KEY = os.getenv("SUPABASE_KEY")
+        
+        # Fallback nếu không có trong .env (để tương thích ngược)
+        if not SUPABASE_URL:
+            try:
+                SUPABASE_URL = st.secrets.get("SUPABASE_URL", "")
+                SUPABASE_KEY = st.secrets.get("SUPABASE_KEY", "")
+            except Exception:
+                st.error("❌ Chưa cấu hình Supabase credentials. Vui lòng kiểm tra file .env")
+                st.stop()
+        
+        if SUPABASE_URL and SUPABASE_KEY:
+            try:
+                st.session_state.supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+                st.success("✅ Đã kết nối Database (Supabase)")
+            except Exception as e:
+                st.error(f"❌ Lỗi kết nối Database: {str(e)}")
+                st.stop()
+        else:
+            st.error("❌ Thiếu Supabase credentials. Vui lòng cấu hình trong file .env")
+            st.stop()
     
     # Khởi tạo ChatPersistence
     if "chat_persistence" not in st.session_state:
