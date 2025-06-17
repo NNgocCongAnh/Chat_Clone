@@ -1,0 +1,956 @@
+import streamlit as st
+from datetime import datetime
+
+def render_message(message):
+    """Render một tin nhắn chat với style giống ChatGPT"""
+    role = message["role"]
+    content = message["content"]
+    timestamp = message.get("timestamp", datetime.now())
+    
+    if role == "user":
+        # Tin nhắn của user - căn phải
+        with st.chat_message("user", avatar="👤"):
+            st.markdown(content)
+            st.caption(f"🕐 {timestamp.strftime('%H:%M')}")
+    
+    elif role == "assistant":
+        # Tin nhắn của AI - căn trái
+        with st.chat_message("assistant", avatar="🤖"):
+            st.markdown(content)
+            st.caption(f"🕐 {timestamp.strftime('%H:%M')}")
+
+def render_sidebar():
+    """Render sidebar với thông tin và điều khiển"""
+    with st.sidebar:
+        st.markdown("### 💬 Study Buddy")
+        st.markdown("---")
+        
+        # Thông tin ứng dụng
+        st.markdown("""
+        **Tính năng:**
+        - 💬 Chat với AI
+        - 📄 Upload tài liệu
+        - 🔍 Tìm kiếm trong tài liệu
+        - 💾 Lưu lịch sử chat
+        """)
+        
+        st.markdown("---")
+        
+        # Hướng dẫn sử dụng
+        with st.expander("📖 Hướng dẫn sử dụng"):
+            st.markdown("""
+            **Cách sử dụng:**
+            1. Upload tài liệu (PDF, DOCX, TXT, MD)
+            2. Đặt câu hỏi hoặc chat bình thường
+            3. AI sẽ trả lời dựa trên nội dung tài liệu
+            4. Sử dụng nút "Xóa lịch sử" để reset chat
+            
+            **Mẹo:**
+            - Hỏi cụ thể về nội dung tài liệu
+            - Yêu cầu tóm tắt, phân tích
+            - Chat đa dạng chủ đề
+            """)
+        
+        # Thông tin phiên bản
+        st.markdown("---")
+        st.markdown("**Phiên bản:** 1.0.0")
+        st.markdown("**Công nghệ:** Streamlit + OpenAI")
+
+def render_document_preview(doc_content, max_chars=500):
+    """Hiển thị preview nội dung tài liệu"""
+    if len(doc_content) > max_chars:
+        preview = doc_content[:max_chars] + "..."
+    else:
+        preview = doc_content
+    
+    st.text_area(
+        "Preview nội dung:",
+        value=preview,
+        height=200,
+        disabled=True
+    )
+
+def render_chat_stats(messages):
+    """Hiển thị thống kê chat"""
+    if not messages:
+        return
+    
+    user_msgs = len([m for m in messages if m["role"] == "user"])
+    ai_msgs = len([m for m in messages if m["role"] == "assistant"])
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Tin nhắn của bạn", user_msgs)
+    with col2:
+        st.metric("Phản hồi AI", ai_msgs)
+
+def create_download_link(messages):
+    """Tạo link download lịch sử chat"""
+    if not messages:
+        return None
+    
+    # Tạo nội dung file
+    content = f"# Lịch sử Chat - {datetime.now().strftime('%Y%m%d_%H%M%S')}\n\n"
+    
+    for i, msg in enumerate(messages, 1):
+        role = "👤 Bạn" if msg["role"] == "user" else "🤖 AI"
+        timestamp = msg.get("timestamp", datetime.now()).strftime('%H:%M %d/%m/%Y')
+        content += f"## {i}. {role} ({timestamp})\n\n{msg['content']}\n\n---\n\n"
+    
+    return content
+
+def show_upload_tips():
+    """Hiển thị tips cho việc upload tài liệu"""
+    st.info("""
+    💡 **Mẹo upload tài liệu:**
+    - **PDF:** Hỗ trợ text PDF (không phải ảnh scan)
+    - **DOCX:** File Word định dạng .docx
+    - **TXT/MD:** File text thuần với encoding UTF-8
+    - **Kích thước:** Tối đa 200MB mỗi file
+    """)
+
+def render_error_message(error_msg):
+    """Hiển thị thông báo lỗi với format đẹp"""
+    st.error(f"❌ **Lỗi:** {error_msg}")
+
+def render_success_message(success_msg):
+    """Hiển thị thông báo thành công"""
+    st.success(f"✅ **Thành công:** {success_msg}")
+
+def render_warning_message(warning_msg):
+    """Hiển thị thông báo cảnh báo"""
+    st.warning(f"⚠️ **Cảnh báo:** {warning_msg}")
+
+def create_message_container():
+    """Tạo container cho messages với style tùy chỉnh"""
+    return st.container()
+
+def render_question_carousel(questions, document_text):
+    """Render carousel câu hỏi gợi ý với nút điều hướng trái phải"""
+    if not questions:
+        return
+    
+    # Khởi tạo session state cho carousel
+    if "carousel_start_index" not in st.session_state:
+        st.session_state.carousel_start_index = 0
+    if "pending_question" not in st.session_state:
+        st.session_state.pending_question = None
+    if "question_processed" not in st.session_state:
+        st.session_state.question_processed = False
+    
+    # Xử lý pending question trước khi render
+    if st.session_state.pending_question and not st.session_state.question_processed:
+        st.session_state.question_processed = True
+        question = st.session_state.pending_question
+        
+        # Kiểm tra nếu user đã login
+        if not (hasattr(st.session_state, 'user_id') and st.session_state.user_id):
+            st.error("❌ Vui lòng đăng nhập để sử dụng chat!")
+            st.session_state.pending_question = None
+            st.session_state.question_processed = False
+            return
+        
+        # Tạo session mới nếu chưa có
+        if not st.session_state.current_session_id:
+            smart_title = st.session_state.chat_persistence.generate_smart_title(question)
+            session_id = st.session_state.chat_persistence.create_session(
+                st.session_state.user_id, 
+                smart_title
+            )
+            
+            if session_id:
+                st.session_state.current_session_id = session_id
+                # Refresh sessions list
+                st.session_state.user_sessions = st.session_state.chat_persistence.get_user_sessions(st.session_state.user_id)
+        
+        # Thêm user message
+        st.session_state.messages.append({
+            "role": "user",
+            "content": question,
+            "timestamp": datetime.now()
+        })
+        
+        # Lưu user message vào database
+        if st.session_state.current_session_id:
+            st.session_state.chat_persistence.save_message(
+                st.session_state.user_id,
+                st.session_state.current_session_id,
+                "user",
+                question
+            )
+        
+        # Tạo response
+        if document_text and hasattr(st.session_state, 'doc_processor'):
+            with st.spinner("🤖 Đang trả lời..."):
+                response = st.session_state.doc_processor.answer_question_with_openai(
+                    question,
+                    document_text
+                )
+        else:
+            response = "Vui lòng upload tài liệu để tôi có thể trả lời câu hỏi này."
+        
+        # Thêm AI response
+        st.session_state.messages.append({
+            "role": "assistant", 
+            "content": response,
+            "timestamp": datetime.now()
+        })
+        
+        # Lưu AI response vào database
+        if st.session_state.current_session_id:
+            st.session_state.chat_persistence.save_message(
+                st.session_state.user_id,
+                st.session_state.current_session_id,
+                "assistant",
+                response
+            )
+        
+        # Reset pending question
+        st.session_state.pending_question = None
+        st.session_state.question_processed = False
+        st.rerun()
+    
+    # Số câu hỏi hiển thị cùng lúc (responsive)
+    questions_per_view = 3
+    total_questions = len(questions)
+    max_start_index = max(0, total_questions - questions_per_view)
+    
+    # Container cho carousel
+    st.markdown("""
+    <div class="questions-carousel-container">
+        <h4 style="margin-bottom: 1rem; color: #374151; font-size: 1.1rem;">
+            💡 Câu hỏi gợi ý
+        </h4>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Tạo layout với nút trái, câu hỏi, nút phải
+    col_left, col_questions, col_right = st.columns([0.8, 8.4, 0.8])
+    
+    # Nút điều hướng trái
+    with col_left:
+        if st.button("◀", key="carousel_left", disabled=(st.session_state.carousel_start_index <= 0)):
+            st.session_state.carousel_start_index = max(0, st.session_state.carousel_start_index - 1)
+            st.rerun()
+    
+    # Hiển thị câu hỏi
+    with col_questions:
+        # Lấy câu hỏi hiện tại để hiển thị
+        end_index = min(st.session_state.carousel_start_index + questions_per_view, total_questions)
+        current_questions = questions[st.session_state.carousel_start_index:end_index]
+        
+        # Tạo columns cho các câu hỏi
+        if len(current_questions) == 1:
+            cols = st.columns(1)
+        elif len(current_questions) == 2:
+            cols = st.columns(2)
+        else:
+            cols = st.columns(3)
+        
+        # Check if processing
+        processing = st.session_state.pending_question is not None
+        
+        # Hiển thị từng câu hỏi
+        for i, question in enumerate(current_questions):
+            with cols[i]:
+                question_index = st.session_state.carousel_start_index + i
+                # Unique key với hash để tránh collision
+                button_key = f"q_{hash(question)}_{question_index}"
+                
+                if st.button(
+                    f"💭 {question}", 
+                    key=button_key,
+                    use_container_width=True,
+                    help=f"Nhấn để hỏi: {question}",
+                    disabled=processing  # Disable khi đang xử lý
+                ):
+                    # Set pending question thay vì xử lý ngay
+                    st.session_state.pending_question = question
+                    st.rerun()
+    
+    # Nút điều hướng phải
+    with col_right:
+        if st.button("▶", key="carousel_right", disabled=(st.session_state.carousel_start_index >= max_start_index)):
+            st.session_state.carousel_start_index = min(max_start_index, st.session_state.carousel_start_index + 1)
+            st.rerun()
+    
+    # Hiển thị indicator dots
+    if total_questions > questions_per_view:
+        total_pages = (total_questions - 1) // questions_per_view + 1
+        current_page = st.session_state.carousel_start_index // questions_per_view
+        
+        dots_html = '<div class="carousel-indicators">'
+        for page in range(total_pages):
+            if page == current_page:
+                dots_html += '<span class="dot active">●</span>'
+            else:
+                dots_html += '<span class="dot">○</span>'
+        dots_html += '</div>'
+        
+        st.markdown(dots_html, unsafe_allow_html=True)
+
+def add_custom_css():
+    """Thêm CSS tùy chỉnh cho giao diện"""
+    st.markdown("""
+    <style>
+    /* Custom styles cho chat interface */
+    .chat-message {
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 0.5rem 0;
+    }
+    
+    .user-message {
+        background-color: #007bff;
+        color: white;
+        margin-left: 20%;
+    }
+    
+    .assistant-message {
+        background-color: #f1f3f4;
+        color: #333;
+        margin-right: 20%;
+    }
+    
+    /* Sidebar styling */
+    .sidebar .sidebar-content {
+        background-color: #f8f9fa;
+    }
+    
+    /* File uploader styling */
+    .uploadedFile {
+        border: 2px dashed #007bff;
+        border-radius: 10px;
+        padding: 20px;
+        text-align: center;
+    }
+    
+    /* Button styling */
+    .stButton > button {
+        border-radius: 20px;
+        border: none;
+        background: linear-gradient(45deg, #007bff, #0056b3);
+        color: white;
+    }
+    
+    .stButton > button:hover {
+        background: linear-gradient(45deg, #0056b3, #004085);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+    }
+    
+    /* Question Carousel Styles */
+    .questions-carousel-container {
+        margin: 1rem 0;
+        padding: 1rem;
+        background: linear-gradient(135deg, #f8f9ff, #ffffff);
+        border-radius: 12px;
+        border: 1px solid #e5e7eb;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    }
+    
+    /* Carousel navigation buttons */
+    .stButton[data-testid*="carousel_left"] > button,
+    .stButton[data-testid*="carousel_right"] > button {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        padding: 0;
+        font-size: 1.2rem;
+        font-weight: bold;
+        background: linear-gradient(135deg, #6366f1, #4f46e5);
+        border: none;
+        color: white;
+        box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+        transition: all 0.3s ease;
+    }
+    
+    .stButton[data-testid*="carousel_left"] > button:hover,
+    .stButton[data-testid*="carousel_right"] > button:hover {
+        background: linear-gradient(135deg, #4f46e5, #4338ca);
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+    }
+    
+    .stButton[data-testid*="carousel_left"] > button:disabled,
+    .stButton[data-testid*="carousel_right"] > button:disabled {
+        background: #d1d5db;
+        color: #9ca3af;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+    }
+    
+    /* Question buttons in carousel */
+    .stButton[data-testid*="carousel_question"] > button {
+        background: linear-gradient(135deg, #ffffff, #f8fafc);
+        color: #1f2937;
+        border: 2px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+        line-height: 1.4;
+        height: auto;
+        min-height: 60px;
+        transition: all 0.3s ease;
+        text-align: left;
+        word-wrap: break-word;
+        white-space: normal;
+    }
+    
+    .stButton[data-testid*="carousel_question"] > button:hover {
+        background: linear-gradient(135deg, #007bff, #0056b3);
+        color: white;
+        border-color: #007bff;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0, 123, 255, 0.3);
+    }
+    
+    /* Carousel indicators */
+    .carousel-indicators {
+        text-align: center;
+        margin-top: 0.5rem;
+    }
+    
+    .carousel-indicators .dot {
+        margin: 0 4px;
+        font-size: 1.2rem;
+        color: #d1d5db;
+        transition: color 0.3s ease;
+    }
+    
+    .carousel-indicators .dot.active {
+        color: #007bff;
+    }
+    
+    /* Responsive design cho carousel */
+    @media (max-width: 768px) {
+        .questions-carousel-container {
+            margin: 0.5rem 0;
+            padding: 0.75rem;
+        }
+        
+        .stButton[data-testid*="carousel_question"] > button {
+            font-size: 0.8rem;
+            min-height: 50px;
+            padding: 0.5rem 0.75rem;
+        }
+        
+        .stButton[data-testid*="carousel_left"] > button,
+        .stButton[data-testid*="carousel_right"] > button {
+            width: 35px;
+            height: 35px;
+            font-size: 1rem;
+        }
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def render_page_selector(documents, doc_processor):
+    """Render giao diện chọn trang PDF với dropdown multiselect và navigation"""
+    if not documents:
+        st.info("📄 Chưa có tài liệu PDF nào để chọn trang.")
+        return None, None, None, 0
+    
+    # Lọc chỉ PDF documents
+    pdf_docs = [doc for doc in documents if doc.get('file_type', '').lower() == 'pdf' or 
+                (hasattr(doc.get('file', {}), 'name') and doc['file'].name.lower().endswith('.pdf'))]
+    
+    if not pdf_docs:
+        st.info("📄 Chưa có tài liệu PDF nào để chọn trang.")
+        return None, None, None, 0
+    
+    # Row 1: Dropdown chọn PDF và Multiselect chọn trang
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        # Dropdown chọn PDF
+        pdf_options = {}
+        for i, doc in enumerate(pdf_docs):
+            if hasattr(doc.get('file', {}), 'name'):
+                # Document từ session_state (uploaded_documents)
+                name = doc['file'].name
+                pdf_options[f"{name} ({doc['file'].size} bytes)"] = doc
+            else:
+                # Document từ database (session_documents)
+                name = doc.get('file_name', f'Document {i+1}')
+                size = doc.get('file_size', 0)
+                pdf_options[f"{name} ({size} bytes)"] = doc
+        
+        selected_pdf_name = st.selectbox(
+            "📄 Chọn tài liệu PDF:",
+            options=list(pdf_options.keys()),
+            key="pdf_selector"
+        )
+        
+        if not selected_pdf_name:
+            return None, None, None, 0
+        
+        selected_doc = pdf_options[selected_pdf_name]
+    
+    with col2:
+        # Lấy số trang của PDF
+        page_count = 0
+        if hasattr(selected_doc.get('file', {}), 'name'):
+            # Document từ session_state
+            page_count = doc_processor.get_pdf_page_count(selected_doc['file'])
+        else:
+            # Document từ database
+            page_count = selected_doc.get('page_count', 0)
+        
+        if page_count <= 0:
+            st.warning("⚠️ Không thể xác định số trang của PDF này.")
+            return selected_doc, None, None, 0
+        
+        # Multiselect dropdown cho trang
+        page_options = [f"Trang {i}" for i in range(1, page_count + 1)]
+        selected_page_names = st.multiselect(
+            f"📋 Chọn trang (tổng {page_count} trang):",
+            options=page_options,
+            key="page_multiselect",
+            placeholder="Chọn trang để xem..."
+        )
+        
+        # Convert page names thành numbers
+        selected_pages = []
+        if selected_page_names:
+            selected_pages = [int(page.split()[-1]) for page in selected_page_names]
+            selected_pages.sort()
+    
+    # Nếu không có trang nào được chọn
+    if not selected_pages:
+        st.info("👆 Hãy chọn ít nhất một trang để bắt đầu.")
+        return selected_doc, None, None, 0
+    
+    # Determine current page to display
+    if len(selected_pages) > 1:
+        # Initialize current page index trong session state
+        if "current_page_index" not in st.session_state:
+            st.session_state.current_page_index = 0
+        
+        # Reset index nếu vượt quá số trang đã chọn
+        if st.session_state.current_page_index >= len(selected_pages):
+            st.session_state.current_page_index = 0
+        
+        # Trang hiện tại để hiển thị
+        current_page_to_display = selected_pages[st.session_state.current_page_index]
+    else:
+        # Chỉ có 1 trang được chọn
+        current_page_to_display = selected_pages[0]
+    
+    return selected_doc, current_page_to_display, selected_pages, st.session_state.get('current_page_index', 0)
+
+def render_page_preview(doc_processor, selected_doc, selected_page, max_chars=300):
+    """Hiển thị preview nội dung của trang đã chọn"""
+    if not selected_doc or not selected_page:
+        return None
+    
+    try:
+        # Lấy nội dung trang
+        page_content = None
+        
+        if hasattr(selected_doc.get('file', {}), 'name'):
+            # Document từ session_state
+            page_content = doc_processor.extract_specific_pdf_page(
+                selected_doc['file'], 
+                selected_page
+            )
+        else:
+            # Document từ database - cần load từ document_pages table
+            # (sẽ implement sau khi có database schema)
+            page_content = f"Nội dung trang {selected_page} của {selected_doc.get('file_name', 'Document')}"
+        
+        if page_content:
+            # Hiển thị preview
+            st.subheader(f"👁️ Preview Trang {selected_page}")
+            
+            # Truncate nếu quá dài
+            if len(page_content) > max_chars:
+                preview = page_content[:max_chars] + "..."
+                with st.expander("Xem đầy đủ nội dung trang"):
+                    st.text_area(
+                        "Nội dung đầy đủ:",
+                        value=page_content,
+                        height=300,
+                        disabled=True,
+                        key="full_page_content"
+                    )
+            else:
+                preview = page_content
+            
+            st.text_area(
+                "Nội dung trang:",
+                value=preview,
+                height=150,
+                disabled=True,
+                key="page_preview"
+            )
+            
+            return page_content
+        else:
+            st.error(f"❌ Không thể tải nội dung trang {selected_page}")
+            return None
+            
+    except Exception as e:
+        st.error(f"❌ Lỗi khi tải preview: {str(e)}")
+        return None
+
+def render_tabbed_interface():
+    """Render giao diện tabs cho chat trực tiếp và hỏi theo trang"""
+    tab1, tab2 = st.tabs(["💬 Chat trực tiếp", "📄 Hỏi theo trang PDF"])
+    
+    return tab1, tab2
+
+def render_page_chat_interface(page_content, selected_doc, selected_page):
+    """Render giao diện chat riêng cho trang đã chọn"""
+    if not page_content:
+        st.warning("⚠️ Không có nội dung trang để chat.")
+        return
+    
+    # Khởi tạo session state riêng cho page chat
+    page_chat_key = f"page_chat_{selected_page}_{hash(str(selected_doc))}"
+    
+    if f"messages_{page_chat_key}" not in st.session_state:
+        st.session_state[f"messages_{page_chat_key}"] = []
+    
+    # Hiển thị messages của page chat
+    messages_container = st.container()
+    with messages_container:
+        for message in st.session_state[f"messages_{page_chat_key}"]:
+            render_message(message)
+    
+    # Chat input cho page chat
+    if prompt := st.chat_input(f"Hỏi về trang {selected_page}...", key=f"page_chat_input_{page_chat_key}"):
+        # Kiểm tra đăng nhập
+        if not (hasattr(st.session_state, 'user_id') and st.session_state.user_id):
+            st.error("❌ Vui lòng đăng nhập để sử dụng chat!")
+            return
+        
+        # Tạo session mới nếu cần (riêng cho page chat)
+        page_session_id = None
+        if not hasattr(st.session_state, f'page_session_{page_chat_key}'):
+            # Tạo title cho page session - FIX: Handle both uploaded file và database document
+            try:
+                if hasattr(selected_doc, 'get'):
+                    # Database document (dictionary)
+                    doc_name = selected_doc.get('file_name', selected_doc.get('file', {}).get('name', 'Document'))
+                elif hasattr(selected_doc, 'name'):
+                    # Uploaded file object
+                    doc_name = selected_doc.name
+                else:
+                    # Fallback
+                    doc_name = 'Document'
+            except:
+                doc_name = 'Document'
+                
+            page_title = f"Trang {selected_page} - {doc_name}"
+            
+            page_session_id = st.session_state.chat_persistence.create_session(
+                st.session_state.user_id,
+                page_title
+            )
+            
+            if page_session_id:
+                st.session_state[f'page_session_{page_chat_key}'] = page_session_id
+        else:
+            page_session_id = st.session_state[f'page_session_{page_chat_key}']
+        
+        # Thêm user message
+        user_message = {
+            "role": "user",
+            "content": prompt,
+            "timestamp": datetime.now()
+        }
+        st.session_state[f"messages_{page_chat_key}"].append(user_message)
+        
+        # Lưu user message vào database
+        if page_session_id:
+            st.session_state.chat_persistence.save_message(
+                st.session_state.user_id,
+                page_session_id,
+                "user",
+                prompt
+            )
+        
+        # Hiển thị user message ngay
+        with messages_container:
+            render_message(user_message)
+        
+        # Tạo AI response dựa trên nội dung trang
+        with st.spinner("🤖 Đang phân tích trang..."):
+            if hasattr(st.session_state, 'doc_processor'):
+                response = st.session_state.doc_processor.answer_question_with_openai(
+                    prompt,
+                    page_content
+                )
+            else:
+                response = "Không thể xử lý câu hỏi. Vui lòng thử lại."
+        
+        # Thêm AI response
+        ai_message = {
+            "role": "assistant",
+            "content": response,
+            "timestamp": datetime.now()
+        }
+        st.session_state[f"messages_{page_chat_key}"].append(ai_message)
+        
+        # Lưu AI response vào database
+        if page_session_id:
+            st.session_state.chat_persistence.save_message(
+                st.session_state.user_id,
+                page_session_id,
+                "assistant",
+                response
+            )
+        
+        st.rerun()
+
+def render_document_info_card(doc):
+    """Render thẻ thông tin tài liệu"""
+    with st.container():
+        st.markdown("""
+        <div style="
+            padding: 1rem;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #f8f9ff, #ffffff);
+            margin: 0.5rem 0;
+        ">
+        """, unsafe_allow_html=True)
+        
+        # Thông tin cơ bản
+        if hasattr(doc.get('file', {}), 'name'):
+            # Document từ session_state
+            st.markdown(f"**📄 {doc['file'].name}**")
+            st.markdown(f"**Kích thước:** {doc['file'].size} bytes")
+            if 'timestamp' in doc:
+                st.markdown(f"**Thời gian upload:** {doc['timestamp'].strftime('%H:%M %d/%m/%Y')}")
+        else:
+            # Document từ database
+            st.markdown(f"**📄 {doc.get('file_name', 'Unknown')}**")
+            st.markdown(f"**Kích thước:** {doc.get('file_size', 0)} bytes")
+            if 'created_at' in doc:
+                st.markdown(f"**Thời gian upload:** {doc['created_at'].strftime('%H:%M %d/%m/%Y')}")
+        
+        # Thông tin bổ sung
+        if doc.get('page_count'):
+            st.markdown(f"**Số trang:** {doc['page_count']}")
+        
+        if doc.get('summary'):
+            with st.expander("📝 Tóm tắt"):
+                st.markdown(doc['summary'])
+        
+        st.markdown("</div>", unsafe_allow_html=True)
+
+def render_pdf_page_image_viewer(doc_processor, selected_doc, selected_page, selected_pages=None):
+    """
+    Render PDF page viewer với zoom controls và hiển thị ảnh
+    
+    Args:
+        doc_processor: DocumentProcessor instance
+        selected_doc: Document đã chọn
+        selected_page: Số trang đã chọn
+        selected_pages: Danh sách tất cả các trang đã chọn (optional)
+    """
+    if not selected_doc or not selected_page:
+        st.warning("⚠️ Chưa chọn tài liệu hoặc trang.")
+        return
+    
+    # Header với thông tin trang
+    st.subheader(f"📄 Trang {selected_page}")
+    
+    # Zoom controls
+    col1, col2, col3 = st.columns([2, 2, 1])
+    
+    with col1:
+        zoom_level = st.selectbox(
+            "🔍 Mức zoom:",
+            options=[100, 125, 150, 200],
+            index=1,  # Mặc định 125%
+            key="pdf_zoom_level"
+        )
+    
+    with col2:
+        if st.button("🖼️ Xem toàn màn hình", key="fullscreen_btn"):
+            st.session_state.show_fullscreen = True
+    
+    with col3:
+        # Hiển thị kích thước gốc
+        if hasattr(selected_doc.get('file', {}), 'name'):
+            width, height = doc_processor.get_pdf_image_dimensions(
+                selected_doc['file'], 
+                selected_page
+            )
+            if width > 0 and height > 0:
+                st.caption(f"📐 {width}×{height}px")
+    
+    st.divider()
+    
+    # Hiển thị ảnh PDF
+    try:
+        # Get file object
+        pdf_file = None
+        if hasattr(selected_doc.get('file', {}), 'name'):
+            pdf_file = selected_doc['file']
+        else:
+            st.warning("⚠️ Chỉ hiển thị được ảnh cho tài liệu vừa upload.")
+            return
+        
+        # Convert DPI
+        dpi = int(zoom_level * 1.5)  # Convert zoom % to DPI
+        
+        with st.spinner(f"🔄 Đang tải trang {selected_page} với zoom {zoom_level}%..."):
+            # Lấy ảnh PDF
+            pdf_image = doc_processor.extract_pdf_page_as_image(
+                pdf_file, 
+                selected_page, 
+                dpi=dpi
+            )
+            
+            if pdf_image:
+                # Hiển thị ảnh với caption
+                st.image(
+                    pdf_image,
+                    caption=f"Trang {selected_page} - Zoom {zoom_level}%",
+                    use_column_width=True
+                )
+                
+                # Hiển thị thông tin ảnh
+                img_width, img_height = pdf_image.size
+                st.caption(f"📊 Kích thước hiển thị: {img_width}×{img_height}px")
+                
+            else:
+                st.error("❌ Không thể tải ảnh PDF. Vui lòng thử lại.")
+                
+    except Exception as e:
+        st.error(f"❌ Lỗi khi hiển thị ảnh PDF: {str(e)}")
+    
+    # Navigation controls ngay dưới ảnh (nếu có nhiều trang)
+    if selected_pages and len(selected_pages) > 1:
+        st.divider()
+        
+        # Initialize current page index trong session state
+        if "current_page_index" not in st.session_state:
+            st.session_state.current_page_index = 0
+        
+        # Reset index nếu vượt quá số trang đã chọn
+        if st.session_state.current_page_index >= len(selected_pages):
+            st.session_state.current_page_index = 0
+        
+        # Tìm index của trang hiện tại
+        try:
+            current_index = selected_pages.index(selected_page)
+            st.session_state.current_page_index = current_index
+        except ValueError:
+            pass  # Giữ nguyên index hiện tại nếu không tìm thấy
+        
+        # Navigation controls
+        col_left, col_center, col_right = st.columns([1, 3, 1])
+        
+        with col_left:
+            if st.button("◀", key="nav_left_image", disabled=(st.session_state.current_page_index <= 0)):
+                st.session_state.current_page_index = max(0, st.session_state.current_page_index - 1)
+                st.rerun()
+        
+        with col_center:
+            current_page = selected_pages[st.session_state.current_page_index]
+            st.markdown(f"<div style='text-align: center; padding: 8px;'>"
+                       f"<strong>📄 Trang {current_page} ({st.session_state.current_page_index + 1}/{len(selected_pages)})</strong>"
+                       f"</div>", unsafe_allow_html=True)
+        
+        with col_right:
+            if st.button("▶", key="nav_right_image", disabled=(st.session_state.current_page_index >= len(selected_pages) - 1)):
+                st.session_state.current_page_index = min(len(selected_pages) - 1, st.session_state.current_page_index + 1)
+                st.rerun()
+    
+    # Modal toàn màn hình (nếu được yêu cầu)
+    if st.session_state.get('show_fullscreen', False):
+        render_fullscreen_pdf_modal(doc_processor, selected_doc, selected_page)
+
+def render_fullscreen_pdf_modal(doc_processor, selected_doc, selected_page):
+    """Hiển thị PDF trong modal toàn màn hình"""
+    with st.expander("🖼️ Xem toàn màn hình", expanded=True):
+        col1, col2 = st.columns([5, 1])
+        
+        with col2:
+            if st.button("❌ Đóng", key="close_fullscreen"):
+                st.session_state.show_fullscreen = False
+                st.rerun()
+        
+        with col1:
+            st.markdown("### 📄 Xem toàn màn hình")
+        
+        # Hiển thị ảnh với độ phân giải cao
+        try:
+            pdf_file = selected_doc['file']
+            
+            with st.spinner("🔄 Đang tải ảnh độ phân giải cao..."):
+                # Sử dụng DPI cao cho fullscreen
+                high_res_image = doc_processor.extract_pdf_page_as_image(
+                    pdf_file, 
+                    selected_page, 
+                    dpi=200
+                )
+                
+                if high_res_image:
+                    st.image(
+                        high_res_image,
+                        caption=f"Trang {selected_page} - Độ phân giải cao",
+                        use_column_width=True
+                    )
+                else:
+                    st.error("❌ Không thể tải ảnh độ phân giải cao.")
+                    
+        except Exception as e:
+            st.error(f"❌ Lỗi khi hiển thị ảnh fullscreen: {str(e)}")
+
+def render_page_summary_from_ocr(doc_processor, selected_doc, selected_page, max_chars=200):
+    """
+    Hiển thị tóm tắt ngắn gọn của trang từ OCR text
+    
+    Args:
+        doc_processor: DocumentProcessor instance
+        selected_doc: Document đã chọn
+        selected_page: Số trang đã chọn
+        max_chars: Số ký tự tối đa cho tóm tắt
+    """
+    try:
+        # Lấy OCR text của trang
+        if hasattr(selected_doc.get('file', {}), 'name'):
+            page_content = doc_processor.extract_specific_pdf_page(
+                selected_doc['file'], 
+                selected_page
+            )
+        else:
+            # Từ database - implement sau
+            page_content = selected_doc.get('content', '')
+        
+        if page_content:
+            # Tạo tóm tắt ngắn
+            if len(page_content) > max_chars:
+                summary = page_content[:max_chars] + "..."
+            else:
+                summary = page_content
+            
+            # Hiển thị trong info box
+            st.info(f"📝 **Nội dung trang {selected_page}:**\n\n{summary}")
+            
+            # Nút xem đầy đủ
+            with st.expander("👁️ Xem nội dung đầy đủ"):
+                st.text_area(
+                    "Nội dung OCR đầy đủ:",
+                    value=page_content,
+                    height=200,
+                    disabled=True,
+                    key=f"full_ocr_content_{selected_page}"
+                )
+                
+                # Thống kê
+                word_count = len(page_content.split())
+                char_count = len(page_content)
+                st.caption(f"📊 Thống kê: {word_count} từ, {char_count} ký tự")
+        else:
+            st.warning("⚠️ Không có nội dung OCR cho trang này.")
+            
+    except Exception as e:
+        st.error(f"❌ Lỗi khi tải nội dung trang: {str(e)}")
