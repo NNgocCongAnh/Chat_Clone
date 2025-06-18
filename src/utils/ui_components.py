@@ -72,20 +72,41 @@ def render_typing_animation():
     typing_placeholder.empty()
 
 def render_message_actions(content):
-    """Render action buttons cho messages"""
-    col1, col2, col3, col4 = st.columns([1, 1, 1, 7])
+    """Render action buttons cho messages với responsive layout"""
+    # Xác định nếu đang ở màn hình nhỏ (có thể dựa vào session state)
+    is_small_screen = st.session_state.get('is_mobile', False)
     
-    with col1:
-        if st.button("👍", key=f"like_{hash(content)}", help="Thích tin nhắn này"):
+    # Điều chỉnh columns dựa trên kích thước màn hình
+    if is_small_screen:
+        # Layout mobile - nút nhỏ hơn, sát nhau hơn
+        action_cols = st.columns([1, 1, 1, 3])
+    else:
+        # Layout desktop - có nhiều khoảng cách
+        action_cols = st.columns([0.8, 0.8, 0.8, 7.6])
+    
+    # Render nút Like với style phù hợp
+    with action_cols[0]:
+        like_btn = st.button("👍", key=f"like_{hash(content)}", 
+                            help="Thích tin nhắn này",
+                            use_container_width=is_small_screen)
+        if like_btn:
             st.success("👍 Đã thích!")
     
-    with col2:
-        if st.button("📋", key=f"copy_{hash(content)}", help="Copy tin nhắn"):
+    # Render nút Copy với style phù hợp
+    with action_cols[1]:
+        copy_btn = st.button("📋", key=f"copy_{hash(content)}", 
+                            help="Copy tin nhắn", 
+                            use_container_width=is_small_screen)
+        if copy_btn:
             # JavaScript copy functionality would go here
             st.info("📋 Đã copy!")
     
-    with col3:
-        if st.button("🔄", key=f"regenerate_{hash(content)}", help="Tạo lại phản hồi"):
+    # Render nút Regenerate với style phù hợp
+    with action_cols[2]:
+        regen_btn = st.button("🔄", key=f"regenerate_{hash(content)}", 
+                            help="Tạo lại phản hồi", 
+                            use_container_width=is_small_screen)
+        if regen_btn:
             st.info("🔄 Tính năng tạo lại đang được phát triển...")
 
 def render_sidebar():

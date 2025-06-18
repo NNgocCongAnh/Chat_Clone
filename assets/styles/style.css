@@ -55,9 +55,10 @@
     margin-bottom: 1rem;
 }
 
-/* Chat messages container */
+/* Chat messages container - Responsive improvements */
 .chat-container {
-    max-width: 800px;
+    max-width: min(95%, 1200px);
+    width: 100%;
     margin: 0 auto;
     padding: 1rem;
 }
@@ -66,12 +67,16 @@
 .stChatMessage[data-testid="user-message"] {
     background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
     border-radius: var(--border-radius-xl) var(--border-radius-xl) 4px var(--border-radius-xl);
-    margin-left: 15%;
+    margin-left: min(15%, 120px);
+    margin-right: min(5%, 40px);
     margin-bottom: 1rem;
     box-shadow: var(--shadow-md);
     position: relative;
     transition: all var(--transition-normal);
     border: 1px solid rgba(255, 255, 255, 0.1);
+    width: fit-content;
+    max-width: 85%;
+    margin-left: auto;
 }
 
 .stChatMessage[data-testid="user-message"]:hover {
@@ -101,12 +106,15 @@
 .stChatMessage[data-testid="assistant-message"] {
     background: var(--background-white);
     border-radius: var(--border-radius-xl) var(--border-radius-xl) var(--border-radius-xl) 4px;
-    margin-right: 15%;
+    margin-left: min(5%, 40px);
+    margin-right: min(15%, 120px);
     margin-bottom: 1rem;
     border: 1px solid var(--border-color);
     box-shadow: var(--shadow-md);
     position: relative;
     transition: all var(--transition-normal);
+    width: fit-content;
+    max-width: 85%;
 }
 
 .stChatMessage[data-testid="assistant-message"]:hover {
@@ -531,14 +539,34 @@ h2, h3 {
     background-clip: text;
 }
 
-/* Responsive design */
-@media (max-width: 768px) {
+/* Responsive design - Enhanced and more breakpoints */
+@media (min-width: 1400px) {
+    .chat-container {
+        max-width: 1300px;
+    }
+    
     .stChatMessage[data-testid="user-message"] {
-        margin-left: 10%;
+        margin-left: min(20%, 180px);
+        max-width: 70%;
     }
     
     .stChatMessage[data-testid="assistant-message"] {
-        margin-right: 10%;
+        margin-right: min(20%, 180px);
+        max-width: 70%;
+    }
+}
+
+@media (max-width: 768px) {
+    .stChatMessage[data-testid="user-message"] {
+        margin-left: 5%;
+        margin-right: 2%;
+        max-width: 90%;
+    }
+    
+    .stChatMessage[data-testid="assistant-message"] {
+        margin-right: 5%;
+        margin-left: 2%;
+        max-width: 90%;
     }
     
     .main .block-container {
